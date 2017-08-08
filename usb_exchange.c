@@ -44,6 +44,10 @@
 #define MAX_FRAG_SIZE 64
 #define POLL_DELAY 2
 
+#define FRAG_LEN_MASK 0x1F
+#define FRAG_LAST_MASK (1 << 7)
+#define FRAG_FIRST_MASK (1 << 6)
+
 int initialised, worker_run_flag = 0;
 
 static pthread_t work_thread;
@@ -77,6 +81,7 @@ static size_t peek_queue(struct buffer_queue * head_buffer_queue,
 static int get_next_frag(uint8_t *buf_in, uint8_t len_in, uint8_t *frag_out){
 	static uint8_t offset = 0;
 	int end_offset = offset + MAX_FRAG_SIZE;
+
 	if(end_offset > len_in) end_offset = len_in;
 
 	//TODO: Actually format and copy the fragment
@@ -87,10 +92,19 @@ static int get_next_frag(uint8_t *buf_in, uint8_t len_in, uint8_t *frag_out){
 //returns 1 for non-final fragment, 0 for final
 static int assemble_frags(uint8_t *frag_in, uint8_t *buf_out, uint8_t *len_out){
 	static uint8_t offset = 0;
+	uint8_t frag_len = frag_in[0] & FRAG_LEN_MASK;
+	uint8_t is_last = !!(frag_in[0] & FRAG_LAST_MASK);
+	uint8_t is_first = !!(frag_in[0] & FRAG_FIRST_MASK);
 
-	//TODO: Some assembly required
+	assert((is_first) == (offset == 0));
 
-	return 0; //TODO: Base off the frag bits
+	memcpy(&buf_out[offset], &frag_in[1], frag_len);
+
+	offset += frag_len;
+	*len_out = offset;
+
+	if(is_last) offset = 0;
+	return is_last;
 }
 
 static void *ca8210_test_int_worker(void *arg)
