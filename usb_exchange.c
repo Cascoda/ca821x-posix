@@ -48,6 +48,8 @@ int initialised, worker_run_flag = 0;
 
 static pthread_t work_thread;
 static pthread_mutex_t flag_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t sync_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t sync_cond = PTHREAD_COND_INITIALIZER;
 
 struct buffer_queue{
 	size_t len;
@@ -107,7 +109,7 @@ static void *ca8210_test_int_worker(void *arg)
 
 		//Use a nonblocking read if we are waiting to send messages
 		delay = POLL_DELAY;
-		if(peek_queue(out_buffer_queue, out_queue_mutex)) delay = 0;
+		if(peek_queue(out_buffer_queue, &out_queue_mutex)) delay = 0;
 
 		//Read from the device if possible
 		do{
@@ -120,6 +122,7 @@ static void *ca8210_test_int_worker(void *arg)
 		{
 			//Add to queue for synchronous processing
 			add_to_queue(in_buffer_queue, in_queue_mutex, buffer, len);
+			pthread_cond_signal(&sync_cond);
 		}
 		else
 		{
@@ -186,6 +189,8 @@ int usb_exchange_init_withhandler(usb_exchange_errorhandler callback){
 		goto exit;
 	}
 
+	ca821x_api_downstream = ca8210_test_int_exchange;
+
 	initialised = 1;
 
 exit:
@@ -199,11 +204,45 @@ void usb_exchange_deinit(void){
 	worker_run_flag = 0;
 	pthread_mutex_unlock(&flag_mutex);
 	//TODO: Should probably wait for the worker to actually complete here
+
+	ca821x_api_downstream = NULL;
 }
 
 
 int ca8210_test_int_reset(unsigned long resettime){
 	return -1;
+}
+
+static int ca8210_test_int_exchange(
+	const uint8_t *buf,
+	size_t len,
+	uint8_t *response,
+	void *pDeviceRef
+)
+{
+	int Rx_Length, error, i;
+	const uint8_t isSynchronous = ((buf[0] & SPI_SYN) && response);
+
+	//Synchronous must execute synchronously
+	//Get sync responses from the in queue
+	//Send messages by adding them to the out queue
+
+	if(isSynchronous) pthread_mutex_lock(&sync_mutex);
+
+	add_to_queue(out_buffer_queue, out_queue_mutex, buf, len);
+
+	if(!isSynchronous) return 0;
+
+	while(!peek_queue(in_buffer_queue, &in_queue_mutex))
+	{
+		pthread_cond_wait(&sync_cond, &sync_mutex);
+	}
+
+	pop_from_queue(in_buffer_queue, in_queue_mutex, response, sizeof(struct MAC_Message));
+
+	pthread_mutex_unlock(&sync_mutex);
+
+	return 0;
 }
 
 static void add_to_queue(struct buffer_queue * head_buffer_queue,
@@ -250,7 +289,7 @@ static size_t pop_from_queue(struct buffer_queue * head_buffer_queue,
 			head_buffer_queue = current->next;
 			len = current->len;
 
-			if(len > maxlen) len = 0;
+			if(len > maxlen) len = 0; //Invalid
 
 			memcpy(destBuf, current->buf, len);
 
