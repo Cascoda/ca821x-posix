@@ -57,7 +57,7 @@ typedef int (*usb_exchange_errorhandler)(
  * @warning It is recommended to use the usb_exchange_init_withandler function
  * instead, so that any errors can be handled by your application.
  *
- * @returns 0 for success, -1 for error
+ * @returns 0 for success, -1 for error, 1 if already initialised
  *
  */
 int usb_exchange_init(void);
