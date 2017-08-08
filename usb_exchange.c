@@ -43,7 +43,7 @@ int usb_exchange_init(void){
 
 
 int usb_exchange_init_withhandler(usb_exchange_errorhandler callback){
-	hid_device * hid_ll = NULL;
+	struct hid_device_info *hid_ll, *hid_cur = NULL;
 	int error = 0;
 	int count = 0;
 
@@ -53,9 +53,11 @@ int usb_exchange_init_withhandler(usb_exchange_errorhandler callback){
 		goto exit;
 	}
 
+	hid_cur = hid_ll;
 	do{
 		count++;
-	} while(hid_ll != NULL);
+		hid_cur = hid_cur->next;
+	} while(hid_cur != NULL);
 
 	printf("%d Chilis found.\n", count);
 
