@@ -35,10 +35,12 @@
 
 #include "hidapi/hidapi/hidapi.h"
 #include "usb_exchange.h"
+#include "ca821x_api.h"
 
 #define USB_VID 0x0416
 #define USB_PID 0x5020
 
+#define MAX_BUF_SIZE 256
 #define MAX_FRAG_SIZE 64
 #define POLL_DELAY 2
 
@@ -92,8 +94,11 @@ static int assemble_frags(uint8_t *frag_in, uint8_t *buf_out, uint8_t *len_out){
 static void *ca8210_test_int_worker(void *arg)
 {
 	hid_device *hid_dev = (hid_device *) arg;
-	uint8_t buffer[256];
+	uint8_t buffer[MAX_BUF_SIZE];
+	uint8_t frag_buf[MAX_FRAG_SIZE];
 	uint8_t delay;
+	uint8_t len;
+	int rval;
 
 	pthread_mutex_lock(&flag_mutex);
 	while(worker_run_flag)
@@ -105,15 +110,36 @@ static void *ca8210_test_int_worker(void *arg)
 		if(peek_queue(out_buffer_queue, out_queue_mutex)) delay = 0;
 
 		//Read from the device if possible
+		do{
+			rval = hid_read_timeout(hid_dev, frag_buf, MAX_FRAG_SIZE, delay); //TODO: Need +1 size here for report number?
+			if(rval <= 0) break;
+			delay = -1;
+		} while(assemble_frags(frag_buf, buffer, &len));
 
-		//Send synchronous read messages to queue
+		if(buffer[0] & SPI_SYN) //TODO: Take the filter byte into account
+		{
+			//Add to queue for synchronous processing
+			add_to_queue(in_buffer_queue, in_queue_mutex, buffer, len);
+		}
+		else
+		{
+			ca821x_downstream_dispatch(buffer, len);
+		}
 
 		//Send any queued messages
+		len = pop_from_queue(out_buffer_queue, out_queue_mutex, buffer, MAX_BUF_SIZE);
+		if (len <= 0) continue;
+
+		do{
+			rval = get_next_frag(buffer, len, frag_buf);
+			hid_write(hid_dev, frag_buf, MAX_FRAG_SIZE);	//TODO: Catch error
+		} while(rval);
 
 		pthread_mutex_lock(&flag_mutex);
 	}
 
 	hid_close(hid_dev);
+	return 0;
 }
 
 int usb_exchange_init(void){
@@ -123,7 +149,7 @@ int usb_exchange_init(void){
 int usb_exchange_init_withhandler(usb_exchange_errorhandler callback){
 	struct hid_device_info *hid_ll, *hid_cur = NULL;
 	hid_device *hid_dev = NULL;
-	int error = 0;
+	int rval, error = 0;
 	int count = 0;
 
 	if(initialised) return 1;
@@ -151,10 +177,17 @@ int usb_exchange_init_withhandler(usb_exchange_errorhandler callback){
 	}
 
 	worker_run_flag = 1;
-
-	pthread_create(&work_thread, NULL, &ca8210_test_int_worker, (void *) hid_dev);
+	rval = pthread_create(&work_thread, NULL, &ca8210_test_int_worker, (void *) hid_dev);
+	if(rval != 0)
+	{
+		worker_run_flag = 0;
+		hid_close(hid_dev);
+		error = -1;
+		goto exit;
+	}
 
 	initialised = 1;
+
 exit:
 	hid_free_enumeration(hid_ll);
 	return error;
@@ -162,7 +195,10 @@ exit:
 
 
 void usb_exchange_deinit(void){
-
+	pthread_mutex_lock(&flag_mutex);
+	worker_run_flag = 0;
+	pthread_mutex_unlock(&flag_mutex);
+	//TODO: Should probably wait for the worker to actually complete here
 }
 
 
