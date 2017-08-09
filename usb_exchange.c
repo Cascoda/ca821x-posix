@@ -80,21 +80,39 @@ static size_t peek_queue(struct buffer_queue * head_buffer_queue,
 //returns 1 for non-final fragment, 0 for final
 static int get_next_frag(uint8_t *buf_in, uint8_t len_in, uint8_t *frag_out){
 	static uint8_t offset = 0;
-	int end_offset = offset + MAX_FRAG_SIZE;
+	int end_offset = offset + MAX_FRAG_SIZE - 1;
+	uint8_t is_first, is_last, frag_len = 0;
+	is_first = (offset == 0);
 
-	if(end_offset > len_in) end_offset = len_in;
+	if(end_offset >= len_in){
+		end_offset = len_in;
+		is_last = 1;
+	}
+	frag_len = end_offset - offset;
 
-	//TODO: Actually format and copy the fragment
+	assert((frag_len & FRAG_LEN_MASK) == frag_len);
 
-	return !(end_offset == len_in);
+	frag_out[0] = 0;
+	frag_out[1] = 0;
+	frag_out[1] |= frag_len;
+	frag_out[1] |= is_first ? FRAG_FIRST_MASK : 0;
+	frag_out[1] |= is_last ? FRAG_LAST_MASK : 0;
+	memcpy(&frag_out[2], &buf_in[offset], frag_len);
+
+	offset = end_offset;
+
+	if(is_last) offset = 0;
+	return !is_last;
 }
 
 //returns 1 for non-final fragment, 0 for final
 static int assemble_frags(uint8_t *frag_in, uint8_t *buf_out, uint8_t *len_out){
 	static uint8_t offset = 0;
-	uint8_t frag_len = frag_in[0] & FRAG_LEN_MASK;
-	uint8_t is_last = !!(frag_in[0] & FRAG_LAST_MASK);
-	uint8_t is_first = !!(frag_in[0] & FRAG_FIRST_MASK);
+	uint8_t is_first, is_last, frag_len = 0;
+	if(frag_in[0] == 0) frag_in = &frag_in[1]; //Fix for questionable report number existence
+	frag_len = frag_in[0] & FRAG_LEN_MASK;
+	is_last = !!(frag_in[0] & FRAG_LAST_MASK);
+	is_first = !!(frag_in[0] & FRAG_FIRST_MASK);
 
 	assert((is_first) == (offset == 0));
 
@@ -104,14 +122,14 @@ static int assemble_frags(uint8_t *frag_in, uint8_t *buf_out, uint8_t *len_out){
 	*len_out = offset;
 
 	if(is_last) offset = 0;
-	return is_last;
+	return !is_last;
 }
 
 static void *ca8210_test_int_worker(void *arg)
 {
 	hid_device *hid_dev = (hid_device *) arg;
 	uint8_t buffer[MAX_BUF_SIZE];
-	uint8_t frag_buf[MAX_FRAG_SIZE];
+	uint8_t frag_buf[MAX_FRAG_SIZE+1]; //+1 for report ID
 	uint8_t delay;
 	uint8_t len;
 	int rval;
