@@ -325,18 +325,18 @@ static int ca8210_test_int_exchange(
 	return 0;
 }
 
-static void add_to_queue(struct buffer_queue * head_buffer_queue,
+static void add_to_queue(struct buffer_queue **head_buffer_queue,
                          pthread_mutex_t *buf_queue_mutex,
                          const uint8_t *buf, size_t len){
 
 	pthread_mutex_lock(buf_queue_mutex);
 	{
-		struct buffer_queue * nextbuf = head_buffer_queue;
+		struct buffer_queue *nextbuf = *head_buffer_queue;
 		if(nextbuf == NULL){
 			//queue empty -> start new queue
-			head_buffer_queue = malloc(sizeof(struct buffer_queue));
-			memset(head_buffer_queue, 0, sizeof(struct buffer_queue));
-			nextbuf = head_buffer_queue;
+			*head_buffer_queue = malloc(sizeof(struct buffer_queue));
+			memset(*head_buffer_queue, 0, sizeof(struct buffer_queue));
+			nextbuf = *head_buffer_queue;
 		}
 		else{
 			while(nextbuf->next != NULL){
@@ -356,17 +356,17 @@ static void add_to_queue(struct buffer_queue * head_buffer_queue,
 	pthread_mutex_unlock(buf_queue_mutex);
 }
 
-static size_t pop_from_queue(struct buffer_queue * head_buffer_queue,
+static size_t pop_from_queue(struct buffer_queue **head_buffer_queue,
                              pthread_mutex_t *buf_queue_mutex,
                              uint8_t * destBuf, size_t maxlen){
 
 	if(pthread_mutex_lock(buf_queue_mutex) == 0){
 
-		struct buffer_queue * current = head_buffer_queue;
+		struct buffer_queue * current = *head_buffer_queue;
 		size_t len = 0;
 
-		if(head_buffer_queue != NULL){
-			head_buffer_queue = current->next;
+		if(*head_buffer_queue != NULL){
+			*head_buffer_queue = current->next;
 			len = current->len;
 
 			if(len > maxlen) len = 0; //Invalid
