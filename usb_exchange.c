@@ -69,15 +69,15 @@ struct buffer_queue{
 static struct buffer_queue *in_buffer_queue, *out_buffer_queue = NULL;
 static pthread_mutex_t in_queue_mutex, out_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-static void add_to_queue(struct buffer_queue * head_buffer_queue,
+static void add_to_queue(struct buffer_queue **head_buffer_queue,
                          pthread_mutex_t *buf_queue_mutex,
                          const uint8_t *buf, size_t len);
 
-static size_t pop_from_queue(struct buffer_queue * head_buffer_queue,
+static size_t pop_from_queue(struct buffer_queue **head_buffer_queue,
                              pthread_mutex_t *buf_queue_mutex,
                              uint8_t * destBuf, size_t maxlen);
 
-static size_t peek_queue(struct buffer_queue * head_buffer_queue,
+static size_t peek_queue(struct buffer_queue *head_buffer_queue,
                              pthread_mutex_t *buf_queue_mutex);
 
 static int ca8210_test_int_exchange(
