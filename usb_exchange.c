@@ -47,7 +47,7 @@
 #define MAX_FRAG_SIZE 64
 #define POLL_DELAY 2
 
-#define FRAG_LEN_MASK 0x1F
+#define FRAG_LEN_MASK 0x3F
 #define FRAG_LAST_MASK (1 << 7)
 #define FRAG_FIRST_MASK (1 << 6)
 
