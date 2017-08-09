@@ -298,7 +298,6 @@ static int ca8210_test_int_exchange(
 	void *pDeviceRef
 )
 {
-	int Rx_Length, error, i;
 	const uint8_t isSynchronous = ((buf[0] & SPI_SYN) && response);
 
 	//Synchronous must execute synchronously
