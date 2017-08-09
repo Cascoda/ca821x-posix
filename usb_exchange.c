@@ -90,7 +90,7 @@ static int ca8210_test_int_exchange(
 static int get_next_frag(uint8_t *buf_in, uint8_t len_in, uint8_t *frag_out){
 	static uint8_t offset = 0;
 	int end_offset = offset + MAX_FRAG_SIZE - 1;
-	uint8_t is_first, is_last, frag_len = 0;
+	uint8_t is_first = 0, is_last = 0, frag_len = 0;
 	is_first = (offset == 0);
 
 	if(end_offset >= len_in){
@@ -117,7 +117,7 @@ static int get_next_frag(uint8_t *buf_in, uint8_t len_in, uint8_t *frag_out){
 //returns 1 for non-final fragment, 0 for final
 static int assemble_frags(uint8_t *frag_in, uint8_t *buf_out, uint8_t *len_out){
 	static uint8_t offset = 0;
-	uint8_t is_first, is_last, frag_len = 0;
+	uint8_t is_first = 0, is_last = 0, frag_len = 0;
 	if(frag_in[0] == 0) frag_in = &frag_in[1]; //Fix for questionable report number existence
 	frag_len = frag_in[0] & FRAG_LEN_MASK;
 	is_last = !!(frag_in[0] & FRAG_LAST_MASK);
@@ -160,7 +160,7 @@ void test_frag_loopback(){
 	uint8_t len, rval;
 
 	do{
-		rval = get_next_frag(data_in, data_in_size, frag_buf);
+		rval = gp oet_next_frag(data_in, data_in_size, frag_buf);
 	}while(assemble_frags(frag_buf, data_out, &len));
 
 	assert(rval); //make sure both assembly and deconstruction thought this was last frag
@@ -228,8 +228,8 @@ int usb_exchange_init(void){
 }
 
 int usb_exchange_init_withhandler(usb_exchange_errorhandler callback){
-	struct hid_device_info *hid_ll, *hid_cur = NULL;
-	hid_device *hid_dev = NULL;
+	struct hid_device_info *hid_ll, *hid_cur;
+	hid_device *hid_dev;
 	int rval, error = 0;
 	int count = 0;
 
