@@ -34,6 +34,7 @@
 #include <pthread.h>
 #include <stdint.h>
 #include <string.h>
+#include <assert.h>
 
 #include "hidapi/hidapi/hidapi.h"
 #include "usb_exchange.h"
