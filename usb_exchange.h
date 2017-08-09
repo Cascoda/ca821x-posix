@@ -32,6 +32,8 @@
 #ifndef USB_EXCHANGE_H
 #define USB_EXCHANGE_H
 
+#define TEST_ENABLE 1
+
 /* Optional callback for the application layer
  * to handle any chip errors which would otherwise
  * cause a crash.
@@ -91,5 +93,10 @@ void usb_exchange_deinit(void);
  *
  */
 int ca8210_test_int_reset(unsigned long resettime);
+
+#ifdef TEST_ENABLE
+	//Run to test fragmentation. Crashes upon fail.
+	void test_frag_loopback();
+#endif
 
 #endif
