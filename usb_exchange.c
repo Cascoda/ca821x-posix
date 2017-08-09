@@ -196,15 +196,18 @@ static void *ca8210_test_int_worker(void *arg)
 			delay = -1;
 		} while(assemble_frags(frag_buf, buffer, &len));
 
-		if(buffer[0] & SPI_SYN) //TODO: Take the filter byte into account
+		if(rval > 0)
 		{
-			//Add to queue for synchronous processing
-			add_to_queue(in_buffer_queue, &in_queue_mutex, buffer, len);
-			pthread_cond_signal(&sync_cond);
-		}
-		else
-		{
-			ca821x_downstream_dispatch(buffer, len);
+			if(buffer[0] & SPI_SYN) //TODO: Take the filter byte into account
+			{
+				//Add to queue for synchronous processing
+				add_to_queue(in_buffer_queue, &in_queue_mutex, buffer, len);
+				pthread_cond_signal(&sync_cond);
+			}
+			else
+			{
+				ca821x_downstream_dispatch(buffer, len);
+			}
 		}
 
 		//Send any queued messages
