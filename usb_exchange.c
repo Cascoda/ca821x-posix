@@ -75,7 +75,7 @@ static size_t pop_from_queue(struct buffer_queue * head_buffer_queue,
                              uint8_t * destBuf, size_t maxlen);
 
 static size_t peek_queue(struct buffer_queue * head_buffer_queue,
-                             pthread_mutex_t *buf_queue_mutex)
+                             pthread_mutex_t *buf_queue_mutex);
 
 //returns 1 for non-final fragment, 0 for final
 static int get_next_frag(uint8_t *buf_in, uint8_t len_in, uint8_t *frag_out){
