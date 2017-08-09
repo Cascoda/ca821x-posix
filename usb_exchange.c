@@ -29,9 +29,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <stdlib.h>
 #include <stdio.h>
 #include <pthread.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "hidapi/hidapi/hidapi.h"
 #include "usb_exchange.h"
@@ -76,6 +78,12 @@ static size_t pop_from_queue(struct buffer_queue * head_buffer_queue,
 
 static size_t peek_queue(struct buffer_queue * head_buffer_queue,
                              pthread_mutex_t *buf_queue_mutex);
+
+static int ca8210_test_int_exchange(
+	const uint8_t *buf,
+	size_t len,
+	uint8_t *response,
+	void *pDeviceRef);
 
 //returns 1 for non-final fragment, 0 for final
 static int get_next_frag(uint8_t *buf_in, uint8_t len_in, uint8_t *frag_out){
@@ -190,7 +198,7 @@ static void *ca8210_test_int_worker(void *arg)
 		if(buffer[0] & SPI_SYN) //TODO: Take the filter byte into account
 		{
 			//Add to queue for synchronous processing
-			add_to_queue(in_buffer_queue, in_queue_mutex, buffer, len);
+			add_to_queue(in_buffer_queue, &in_queue_mutex, buffer, len);
 			pthread_cond_signal(&sync_cond);
 		}
 		else
@@ -199,7 +207,7 @@ static void *ca8210_test_int_worker(void *arg)
 		}
 
 		//Send any queued messages
-		len = pop_from_queue(out_buffer_queue, out_queue_mutex, buffer, MAX_BUF_SIZE);
+		len = pop_from_queue(out_buffer_queue, &out_queue_mutex, buffer, MAX_BUF_SIZE);
 		if (len <= 0) continue;
 
 		do{
@@ -298,7 +306,7 @@ static int ca8210_test_int_exchange(
 
 	if(isSynchronous) pthread_mutex_lock(&sync_mutex);
 
-	add_to_queue(out_buffer_queue, out_queue_mutex, buf, len);
+	add_to_queue(out_buffer_queue, &out_queue_mutex, buf, len);
 
 	if(!isSynchronous) return 0;
 
@@ -307,7 +315,7 @@ static int ca8210_test_int_exchange(
 		pthread_cond_wait(&sync_cond, &sync_mutex);
 	}
 
-	pop_from_queue(in_buffer_queue, in_queue_mutex, response, sizeof(struct MAC_Message));
+	pop_from_queue(in_buffer_queue, &in_queue_mutex, response, sizeof(struct MAC_Message));
 
 	pthread_mutex_unlock(&sync_mutex);
 
