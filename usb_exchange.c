@@ -163,7 +163,7 @@ void test_frag_loopback(){
 		rval = get_next_frag(data_in, data_in_size, frag_buf);
 	}while(assemble_frags(frag_buf, data_out, &len));
 
-	assert(rval); //make sure both assembly and deconstruction thought this was last frag
+	assert(!rval); //make sure both assembly and deconstruction thought this was last frag
 	assert(len == data_in_size);
 
 	rval = memcmp(data_in, data_out, len);
