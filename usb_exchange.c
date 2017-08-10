@@ -53,10 +53,12 @@
 
 int initialised, worker_run_flag = 0;
 
-static pthread_t work_thread;
+static pthread_t usb_io_thread, dd_thread;
 static pthread_mutex_t flag_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_mutex_t sync_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t sync_cond = PTHREAD_COND_INITIALIZER;
+static pthread_mutex_t sync_mutex = PTHREAD_MUTEX_INITIALIZER,
+                       dd_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t sync_cond = PTHREAD_COND_INITIALIZER,
+                      dd_cond = PTHREAD_COND_INITIALIZER;
 
 struct buffer_queue{
 	size_t len;
@@ -66,8 +68,12 @@ struct buffer_queue{
 
 //In queue = Device to host(us)
 //Out queue = Host(us) to device
-static struct buffer_queue *in_buffer_queue, *out_buffer_queue = NULL;
-static pthread_mutex_t in_queue_mutex, out_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
+static struct buffer_queue *in_buffer_queue = NULL,
+                           *out_buffer_queue = NULL,
+                           *downstream_dispatch_queue = NULL;
+static pthread_mutex_t in_queue_mutex = PTHREAD_MUTEX_INITIALIZER,
+                       out_queue_mutex = PTHREAD_MUTEX_INITIALIZER,
+                       downstream_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static void add_to_queue(struct buffer_queue **head_buffer_queue,
                          pthread_mutex_t *buf_queue_mutex,
@@ -137,22 +143,22 @@ static int assemble_frags(uint8_t *frag_in, uint8_t *buf_out, uint8_t *len_out){
 #ifdef TEST_ENABLE
 void test_frag_loopback(){
 	uint8_t data_in[] = { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-	                    0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11,
-	                    0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a,
-	                    0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23,
-	                    0xca, 0x5c, 0x0d, 0xaa, 0xca, 0x5c, 0x0d, 0xaa, 0x11,
-	                    0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99,
-	                    0x12, 0x23, 0x34, 0x45, 0x56, 0x67, 0x45, 0x56, 0x67,
-	                    0xe9, 0xdc, 0x7c, 0x64, 0x56, 0x9a, 0x68, 0xe9, 0x86,
-	                    0xe8, 0xe2, 0xf1, 0x92, 0x9e, 0xc5, 0x92, 0x67, 0x5f,
-	                    0x91, 0x65, 0xae, 0x9f, 0x01, 0x45, 0x12, 0xe5, 0xdb,
-	                    0xfb, 0x07, 0xf2, 0xe8, 0xfd, 0xb2, 0x54, 0x26, 0x1d,
-	                    0xe8, 0xec, 0x3e, 0xf8, 0x25, 0xaa, 0xe6, 0x7e, 0xba,
-	                    0x5b, 0xa0, 0x6e, 0xfc, 0xa3, 0xdf, 0x6d, 0x97, 0xbe,
-	                    0x7c, 0xf6, 0x51, 0x77, 0x7f, 0x28, 0x44, 0xda, 0x48,
-	                    0x4f, 0x2e, 0x57, 0xc3, 0x81, 0x8e, 0x76, 0x22, 0x3d,
-	                    0x40, 0x5a, 0x69, 0x62, 0x91, 0x10, 0x87, 0x1d, 0x11,
-	                    0x11, 0x11, 0xca, 0x5c, 0x0d, 0xaa, 0x11, 0x11       };
+	                      0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11,
+	                      0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a,
+	                      0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23,
+	                      0xca, 0x5c, 0x0d, 0xaa, 0xca, 0x5c, 0x0d, 0xaa, 0x11,
+	                      0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99,
+	                      0x12, 0x23, 0x34, 0x45, 0x56, 0x67, 0x45, 0x56, 0x67,
+	                      0xe9, 0xdc, 0x7c, 0x64, 0x56, 0x9a, 0x68, 0xe9, 0x86,
+	                      0xe8, 0xe2, 0xf1, 0x92, 0x9e, 0xc5, 0x92, 0x67, 0x5f,
+	                      0x91, 0x65, 0xae, 0x9f, 0x01, 0x45, 0x12, 0xe5, 0xdb,
+	                      0xfb, 0x07, 0xf2, 0xe8, 0xfd, 0xb2, 0x54, 0x26, 0x1d,
+	                      0xe8, 0xec, 0x3e, 0xf8, 0x25, 0xaa, 0xe6, 0x7e, 0xba,
+	                      0x5b, 0xa0, 0x6e, 0xfc, 0xa3, 0xdf, 0x6d, 0x97, 0xbe,
+	                      0x7c, 0xf6, 0x51, 0x77, 0x7f, 0x28, 0x44, 0xda, 0x48,
+	                      0x4f, 0x2e, 0x57, 0xc3, 0x81, 0x8e, 0x76, 0x22, 0x3d,
+	                      0x40, 0x5a, 0x69, 0x62, 0x91, 0x10, 0x87, 0x1d, 0x11,
+	                      0x11, 0x11, 0xca, 0x5c, 0x0d, 0xaa, 0x11, 0x11       };
 
 	int data_in_size = sizeof(data_in)/sizeof(data_in[0]);
 	uint8_t data_out[MAX_BUF_SIZE];
@@ -170,6 +176,37 @@ void test_frag_loopback(){
 	assert(rval == 0);
 }
 #endif
+
+static void *ca821x_downstream_dispatch_worker(void *arg)
+{
+	uint8_t buffer[MAX_BUF_SIZE];
+	uint8_t delay;
+	uint8_t len;
+	int rval;
+
+	pthread_mutex_lock(&flag_mutex);
+	while(worker_run_flag)
+	{
+		pthread_mutex_unlock(&flag_mutex);
+		pthread_mutex_lock(&dd_mutex);
+
+		while(peek_queue(downstream_dispatch_queue, &downstream_queue_mutex))
+		{
+			pthread_cond_wait(&dd_cond, &dd_mutex);
+		}
+
+		len = pop_from_queue(&downstream_dispatch_queue, &downstream_queue_mutex,
+		                     buffer, MAX_BUF_SIZE);
+
+		if(len > 0) ca821x_downstream_dispatch(buffer, len);
+
+		pthread_mutex_unlock(&dd_mutex);
+		pthread_mutex_lock(&flag_mutex);
+	}
+
+	pthread_mutex_unlock(&flag_mutex);
+	return 0;
+}
 
 static void *ca8210_test_int_worker(void *arg)
 {
@@ -208,7 +245,11 @@ static void *ca8210_test_int_worker(void *arg)
 			}
 			else
 			{
-				ca821x_downstream_dispatch(buffer, len);
+				pthread_mutex_lock(&dd_mutex);
+				add_to_queue(&downstream_dispatch_queue, &downstream_queue_mutex,
+				             buffer, len);
+				pthread_mutex_unlock(&dd_mutex);
+				pthread_cond_signal(&dd_cond);
 			}
 		}
 
@@ -224,6 +265,7 @@ static void *ca8210_test_int_worker(void *arg)
 		pthread_mutex_lock(&flag_mutex);
 	}
 
+	pthread_mutex_unlock(&flag_mutex);
 	hid_close(hid_dev);
 	return 0;
 }
@@ -263,11 +305,21 @@ int usb_exchange_init_withhandler(usb_exchange_errorhandler callback){
 	}
 
 	worker_run_flag = 1;
-	rval = pthread_create(&work_thread, NULL, &ca8210_test_int_worker, (void *) hid_dev);
+	rval = pthread_create(&usb_io_thread, NULL, &ca8210_test_int_worker, (void *) hid_dev);
 	if(rval != 0)
 	{
 		worker_run_flag = 0;
 		hid_close(hid_dev);
+		error = -1;
+		goto exit;
+	}
+	rval = pthread_create(&dd_thread, NULL, &ca821x_downstream_dispatch_worker, NULL);
+	if(rval != 0)
+	{
+		//The io thread is successfully running but dd is not
+		pthread_mutex_lock(&flag_mutex);
+		worker_run_flag = 0;
+		pthread_mutex_unlock(&flag_mutex);
 		error = -1;
 		goto exit;
 	}
@@ -286,9 +338,15 @@ void usb_exchange_deinit(void){
 	pthread_mutex_lock(&flag_mutex);
 	worker_run_flag = 0;
 	pthread_mutex_unlock(&flag_mutex);
-	//TODO: Should probably wait for the worker to actually complete here
 
-	ca821x_api_downstream = NULL;
+	//Wake the downstream dispatch thread up so that it dies cleanly
+	pthread_mutex_lock(&dd_mutex);
+	add_to_queue(&downstream_dispatch_queue, &downstream_queue_mutex,
+				 NULL, 0);
+	pthread_mutex_unlock(&dd_mutex);
+	pthread_cond_signal(&dd_cond);
+
+	//TODO: Should probably wait for the workers to actually complete here
 }
 
 
