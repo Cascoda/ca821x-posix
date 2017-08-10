@@ -201,7 +201,9 @@ static void *ca8210_test_int_worker(void *arg)
 			if(buffer[0] & SPI_SYN) //TODO: Take the filter byte into account
 			{
 				//Add to queue for synchronous processing
+				pthread_mutex_lock(&sync_mutex);
 				add_to_queue(&in_buffer_queue, &in_queue_mutex, buffer, len);
+				pthread_mutex_unlock(&sync_mutex);
 				pthread_cond_signal(&sync_cond);
 			}
 			else
