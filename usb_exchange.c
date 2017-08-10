@@ -190,7 +190,7 @@ static void *ca821x_downstream_dispatch_worker(void *arg)
 		pthread_mutex_unlock(&flag_mutex);
 		pthread_mutex_lock(&dd_mutex);
 
-		while(peek_queue(downstream_dispatch_queue, &downstream_queue_mutex))
+		while(!peek_queue(downstream_dispatch_queue, &downstream_queue_mutex))
 		{
 			pthread_cond_wait(&dd_cond, &dd_mutex);
 		}
