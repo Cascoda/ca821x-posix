@@ -52,6 +52,7 @@
 #define FRAG_FIRST_MASK (1 << 6)
 
 int initialised, worker_run_flag = 0;
+usb_exchange_errorhandler error_callback = NULL;
 
 static pthread_t usb_io_thread, dd_thread;
 static pthread_mutex_t flag_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -228,7 +229,7 @@ static void *ca8210_test_int_worker(void *arg)
 
 		//Read from the device if possible
 		do{
-			rval = hid_read_timeout(hid_dev, frag_buf, MAX_FRAG_SIZE, delay); //TODO: Need +1 size here for report number?
+			rval = hid_read_timeout(hid_dev, frag_buf, MAX_FRAG_SIZE, delay);
 			if(rval <= 0) break;
 			delay = -1;
 		} while(assemble_frags(frag_buf, buffer, &len));
@@ -255,7 +256,14 @@ static void *ca8210_test_int_worker(void *arg)
 
 		do{
 			rval = get_next_frag(buffer, len, frag_buf);
-			hid_write(hid_dev, frag_buf, MAX_FRAG_SIZE + 1);	//TODO: Catch error
+			if(hid_write(hid_dev, frag_buf, MAX_FRAG_SIZE + 1) < 0){
+				if(error_callback){
+					error_callback(usb_exchange_err_usb);
+				}
+				else{
+					abort();
+				}
+			}
 		} while(rval);
 
 		pthread_mutex_lock(&flag_mutex);
@@ -277,6 +285,8 @@ int usb_exchange_init_withhandler(usb_exchange_errorhandler callback){
 	int count = 0;
 
 	if(initialised) return 1;
+
+	error_callback = callback;
 
 	hid_ll = hid_enumerate(USB_VID, USB_PID);
 	if(!hid_ll){
@@ -331,6 +341,7 @@ exit:
 
 
 void usb_exchange_deinit(void){
+	initialised = 0;
 	pthread_mutex_lock(&flag_mutex);
 	worker_run_flag = 0;
 	pthread_mutex_unlock(&flag_mutex);
@@ -340,6 +351,8 @@ void usb_exchange_deinit(void){
 					     &dd_cond, NULL, 0);
 
 	//TODO: Should probably wait for the workers to actually complete here
+
+	usb_exchange_errorhandler = NULL;
 }
 
 
@@ -356,6 +369,7 @@ static int ca8210_test_int_exchange(
 {
 	const uint8_t isSynchronous = ((buf[0] & SPI_SYN) && response);
 
+	if(!initialised) return -1;
 	//Synchronous must execute synchronously
 	//Get sync responses from the in queue
 	//Send messages by adding them to the out queue
