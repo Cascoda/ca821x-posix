@@ -90,7 +90,7 @@ static size_t pop_from_queue(struct buffer_queue **head_buffer_queue,
 static size_t peek_queue(struct buffer_queue *head_buffer_queue,
                              pthread_mutex_t *buf_queue_mutex);
 
-static size_t wait_on_queue(struct buffer_queue * head_buffer_queue,
+static size_t wait_on_queue(struct buffer_queue ** head_buffer_queue,
                             pthread_mutex_t *buf_queue_mutex,
                             pthread_cond_t *queue_cond);
 
@@ -194,7 +194,7 @@ static void *ca821x_downstream_dispatch_worker(void *arg)
 	{
 		pthread_mutex_unlock(&flag_mutex);
 
-		wait_on_queue(downstream_dispatch_queue, &downstream_queue_mutex, &dd_cond);
+		wait_on_queue(&downstream_dispatch_queue, &downstream_queue_mutex, &dd_cond);
 
 		len = pop_from_queue(&downstream_dispatch_queue, &downstream_queue_mutex,
 		                     buffer, MAX_BUF_SIZE);
@@ -366,7 +366,7 @@ static int ca8210_test_int_exchange(
 
 	if(!isSynchronous) return 0;
 
-	wait_on_queue(in_buffer_queue, &in_queue_mutex, &sync_cond);
+	wait_on_queue(&in_buffer_queue, &in_queue_mutex, &sync_cond);
 
 	pop_from_queue(&in_buffer_queue, &in_queue_mutex, response, sizeof(struct MAC_Message));
 
@@ -483,7 +483,7 @@ static size_t peek_queue(struct buffer_queue * head_buffer_queue,
 
 //return the length of the next buffer in the queue, blocking until
 //it arrives. Returns length of buffer (or -1 upon error).
-static size_t wait_on_queue(struct buffer_queue * head_buffer_queue,
+static size_t wait_on_queue(struct buffer_queue ** head_buffer_queue,
                             pthread_mutex_t *buf_queue_mutex,
                             pthread_cond_t *queue_cond){
 	size_t in_queue = -1;
@@ -491,8 +491,8 @@ static size_t wait_on_queue(struct buffer_queue * head_buffer_queue,
 	if(pthread_mutex_lock(buf_queue_mutex) == 0){
 
 		do{
-			if(head_buffer_queue != NULL){
-				in_queue = head_buffer_queue->len;
+			if(*head_buffer_queue != NULL){
+				in_queue = (*head_buffer_queue)->len;
 			}
 			else{
 				pthread_cond_wait(queue_cond, buf_queue_mutex);
