@@ -352,7 +352,7 @@ void usb_exchange_deinit(void){
 
 	//TODO: Should probably wait for the workers to actually complete here
 
-	usb_exchange_errorhandler = NULL;
+	error_callback = NULL;
 }
 
 
