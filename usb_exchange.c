@@ -187,9 +187,7 @@ void test_frag_loopback(){
 static void *ca821x_downstream_dispatch_worker(void *arg)
 {
 	uint8_t buffer[MAX_BUF_SIZE];
-	uint8_t delay;
 	uint8_t len;
-	int rval;
 
 	pthread_mutex_lock(&flag_mutex);
 	while(worker_run_flag)
@@ -368,7 +366,7 @@ static int ca8210_test_int_exchange(
 
 	if(!isSynchronous) return 0;
 
-	wait_on_queue(&in_buffer_queue, &in_queue_mutex, &sync_cond);
+	wait_on_queue(in_buffer_queue, &in_queue_mutex, &sync_cond);
 
 	pop_from_queue(&in_buffer_queue, &in_queue_mutex, response, sizeof(struct MAC_Message));
 
