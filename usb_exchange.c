@@ -55,8 +55,7 @@ int initialised, worker_run_flag = 0;
 
 static pthread_t usb_io_thread, dd_thread;
 static pthread_mutex_t flag_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_mutex_t sync_mutex = PTHREAD_MUTEX_INITIALIZER,
-                       dd_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t sync_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t sync_cond = PTHREAD_COND_INITIALIZER,
                       dd_cond = PTHREAD_COND_INITIALIZER;
 
@@ -79,12 +78,21 @@ static void add_to_queue(struct buffer_queue **head_buffer_queue,
                          pthread_mutex_t *buf_queue_mutex,
                          const uint8_t *buf, size_t len);
 
+static void add_to_waiting_queue(struct buffer_queue **head_buffer_queue,
+                                 pthread_mutex_t *buf_queue_mutex,
+                                 pthread_cond_t *queue_cond,
+                                 const uint8_t *buf, size_t len);
+
 static size_t pop_from_queue(struct buffer_queue **head_buffer_queue,
                              pthread_mutex_t *buf_queue_mutex,
                              uint8_t * destBuf, size_t maxlen);
 
 static size_t peek_queue(struct buffer_queue *head_buffer_queue,
                              pthread_mutex_t *buf_queue_mutex);
+
+static size_t wait_on_queue(struct buffer_queue * head_buffer_queue,
+                            pthread_mutex_t *buf_queue_mutex,
+                            pthread_cond_t *queue_cond);
 
 static int ca8210_test_int_exchange(
 	const uint8_t *buf,
@@ -124,7 +132,6 @@ static int get_next_frag(uint8_t *buf_in, uint8_t len_in, uint8_t *frag_out){
 static int assemble_frags(uint8_t *frag_in, uint8_t *buf_out, uint8_t *len_out){
 	static uint8_t offset = 0;
 	uint8_t is_first = 0, is_last = 0, frag_len = 0;
-	if(frag_in[0] == 0) frag_in = &frag_in[1]; //Fix for questionable report number existence
 	frag_len = frag_in[0] & FRAG_LEN_MASK;
 	is_last = !!(frag_in[0] & FRAG_LAST_MASK);
 	is_first = !!(frag_in[0] & FRAG_FIRST_MASK);
@@ -167,7 +174,7 @@ void test_frag_loopback(){
 
 	do{
 		rval = get_next_frag(data_in, data_in_size, frag_buf);
-	}while(assemble_frags(frag_buf, data_out, &len));
+	}while(assemble_frags(frag_buf+1, data_out, &len));
 
 	assert(!rval); //make sure both assembly and deconstruction thought this was last frag
 	assert(len == data_in_size);
@@ -188,19 +195,14 @@ static void *ca821x_downstream_dispatch_worker(void *arg)
 	while(worker_run_flag)
 	{
 		pthread_mutex_unlock(&flag_mutex);
-		pthread_mutex_lock(&dd_mutex);
 
-		while(!peek_queue(downstream_dispatch_queue, &downstream_queue_mutex))
-		{
-			pthread_cond_wait(&dd_cond, &dd_mutex);
-		}
+		wait_on_queue(downstream_dispatch_queue, &downstream_queue_mutex, &dd_cond);
 
 		len = pop_from_queue(&downstream_dispatch_queue, &downstream_queue_mutex,
 		                     buffer, MAX_BUF_SIZE);
 
 		if(len > 0) ca821x_downstream_dispatch(buffer, len);
 
-		pthread_mutex_unlock(&dd_mutex);
 		pthread_mutex_lock(&flag_mutex);
 	}
 
@@ -238,18 +240,14 @@ static void *ca8210_test_int_worker(void *arg)
 			if(buffer[0] & SPI_SYN) //TODO: Take the filter byte into account
 			{
 				//Add to queue for synchronous processing
-				pthread_mutex_lock(&sync_mutex);
-				add_to_queue(&in_buffer_queue, &in_queue_mutex, buffer, len);
-				pthread_cond_signal(&sync_cond);
-				pthread_mutex_unlock(&sync_mutex);
+				add_to_waiting_queue(&in_buffer_queue, &in_queue_mutex,
+				                     &sync_cond, buffer, len);
 			}
 			else
 			{
-				pthread_mutex_lock(&dd_mutex);
-				add_to_queue(&downstream_dispatch_queue, &downstream_queue_mutex,
-				             buffer, len);
-				pthread_cond_signal(&dd_cond);
-				pthread_mutex_unlock(&dd_mutex);
+				add_to_waiting_queue(&downstream_dispatch_queue,
+				                     &downstream_queue_mutex,
+				                     &dd_cond, buffer, len);
 			}
 		}
 
@@ -259,7 +257,7 @@ static void *ca8210_test_int_worker(void *arg)
 
 		do{
 			rval = get_next_frag(buffer, len, frag_buf);
-			hid_write(hid_dev, frag_buf, MAX_FRAG_SIZE);	//TODO: Catch error
+			hid_write(hid_dev, frag_buf, MAX_FRAG_SIZE + 1);	//TODO: Catch error
 		} while(rval);
 
 		pthread_mutex_lock(&flag_mutex);
@@ -340,11 +338,8 @@ void usb_exchange_deinit(void){
 	pthread_mutex_unlock(&flag_mutex);
 
 	//Wake the downstream dispatch thread up so that it dies cleanly
-	pthread_mutex_lock(&dd_mutex);
-	add_to_queue(&downstream_dispatch_queue, &downstream_queue_mutex,
-				 NULL, 0);
-	pthread_cond_signal(&dd_cond);
-	pthread_mutex_unlock(&dd_mutex);
+	add_to_waiting_queue(&downstream_dispatch_queue, &downstream_queue_mutex,
+					     &dd_cond, NULL, 0);
 
 	//TODO: Should probably wait for the workers to actually complete here
 }
@@ -373,10 +368,7 @@ static int ca8210_test_int_exchange(
 
 	if(!isSynchronous) return 0;
 
-	while(!peek_queue(in_buffer_queue, &in_queue_mutex))
-	{
-		pthread_cond_wait(&sync_cond, &sync_mutex);
-	}
+	wait_on_queue(&in_buffer_queue, &in_queue_mutex, &sync_cond);
 
 	pop_from_queue(&in_buffer_queue, &in_queue_mutex, response, sizeof(struct MAC_Message));
 
@@ -414,6 +406,39 @@ static void add_to_queue(struct buffer_queue **head_buffer_queue,
 
 	}
 	pthread_mutex_unlock(buf_queue_mutex);
+}
+
+static void add_to_waiting_queue(struct buffer_queue **head_buffer_queue,
+                                 pthread_mutex_t *buf_queue_mutex,
+                                 pthread_cond_t *queue_cond,
+                                 const uint8_t *buf, size_t len){
+
+	if( pthread_mutex_lock(buf_queue_mutex) == 0){
+		struct buffer_queue *nextbuf = *head_buffer_queue;
+		if(nextbuf == NULL){
+			//queue empty -> start new queue
+			*head_buffer_queue = malloc(sizeof(struct buffer_queue));
+			memset(*head_buffer_queue, 0, sizeof(struct buffer_queue));
+			nextbuf = *head_buffer_queue;
+		}
+		else{
+			while(nextbuf->next != NULL){
+				nextbuf = nextbuf->next;
+			}
+			//allocate new buffer cell
+			nextbuf->next = malloc(sizeof(struct buffer_queue));
+			memset(nextbuf->next, 0, sizeof(struct buffer_queue));
+			nextbuf = nextbuf->next;
+		}
+
+		nextbuf->len = len;
+		nextbuf->buf = malloc(len);
+		memcpy(nextbuf->buf, buf, len);
+
+		pthread_cond_signal(queue_cond);
+
+		pthread_mutex_unlock(buf_queue_mutex);
+	}
 }
 
 static size_t pop_from_queue(struct buffer_queue **head_buffer_queue,
@@ -456,5 +481,27 @@ static size_t peek_queue(struct buffer_queue * head_buffer_queue,
 		pthread_mutex_unlock(buf_queue_mutex);
 	}
 	return in_queue;
+}
 
+//return the length of the next buffer in the queue, blocking until
+//it arrives. Returns length of buffer (or -1 upon error).
+static size_t wait_on_queue(struct buffer_queue * head_buffer_queue,
+                            pthread_mutex_t *buf_queue_mutex,
+                            pthread_cond_t *queue_cond){
+	size_t in_queue = -1;
+
+	if(pthread_mutex_lock(buf_queue_mutex) == 0){
+
+		do{
+			if(head_buffer_queue != NULL){
+				in_queue = head_buffer_queue->len;
+			}
+			else{
+				pthread_cond_wait(queue_cond, buf_queue_mutex);
+			}
+		}while(in_queue == ((size_t)-1));
+		pthread_mutex_unlock(buf_queue_mutex);
+
+	}
+	return in_queue;
 }
