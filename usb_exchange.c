@@ -256,7 +256,7 @@ static void *ca8210_test_int_worker(void *arg)
 		if(len > 0){
 			do{
 				rval = get_next_frag(buffer, len, frag_buf);
-				error = hid_write(hid_dev, frag_buf, MAX_FRAG_SIZE + 1) < 0);
+				error = hid_write(hid_dev, frag_buf, MAX_FRAG_SIZE + 1);
 			} while(rval);
 		}
 
