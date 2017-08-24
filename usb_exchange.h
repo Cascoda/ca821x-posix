@@ -48,6 +48,17 @@ typedef int (*usb_exchange_errorhandler)(
 	int error_number
 );
 
+/* Optional callback for the application layer
+ * to handle any non-ca821x communication with
+ * a usb device over the same protocol. Any
+ * command IDs which are not recognised as
+ * a valid ca821x SPI command will be passed
+ * to this callback.
+ */
+typedef int (*usb_exchange_user_callback)(
+	const uint8_t *buf, size_t len, void *pDeviceRef
+);
+
 /*
  * Must call ONE of the following functions in order to initialize driver communications
  *
@@ -81,6 +92,40 @@ int usb_exchange_init(void);
  *
  */
 int usb_exchange_init_withhandler(usb_exchange_errorhandler callback);
+
+/**
+ * Registers the callback to call for any non-ca821x commands that are sent over
+ * the usb interface. Commands are still limited to the ca821x format, and must
+ * use a command ID that is not currently used by the ca821x-spi protocol.
+ * Currently, 0xA8 is used for openthread commands.
+ *
+ * @param[in]  callback   Function pointer to an user-command-handling callback
+ *
+ * @returns 0 for success, -1 for error
+ *
+ */
+int usb_exchange_register_user_callback(usb_exchange_user_callback callback);
+
+/**
+ * Sends a USB command over the USB interface using the TLV format from ca821x-spi.
+ *
+ * Requirements:
+ *  -The command byte is not already used by the ca821x-spi protocol
+ *  -The SPI_SYNC (0x40) bit is not set
+ *  -The command length (not including command and length) is less than 189 bytes
+ *
+ * @param[in]   buf   Buffer containing the message to be sent over usb. First
+ *                    byte is the command ID, second byte is the length of the
+ *                    command not including the first 2 bytes.
+ *
+ * @param[in]   len   Length of the buffer (including first 2 bytes)
+ *
+ * @param[in]   pDeviceRef   Device reference for sending
+ *
+ * @returns 0 for success, -1 for error
+ *
+ */
+int usb_exchange_user_send(const uint8_t *buf, size_t len, void *pDeviceRef);
 
 /**
  * Deinitialise the usb exchange, so that it can be reinitialised by another

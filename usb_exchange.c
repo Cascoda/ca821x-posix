@@ -43,7 +43,7 @@
 #define USB_VID 0x0416
 #define USB_PID 0x5020
 
-#define MAX_BUF_SIZE 256
+#define MAX_BUF_SIZE 189
 #define MAX_FRAG_SIZE 64
 #define POLL_DELAY 2
 
@@ -53,6 +53,7 @@
 
 int initialised, worker_run_flag = 0;
 usb_exchange_errorhandler error_callback = NULL;
+usb_exchange_user_callback user_callback = NULL;
 
 static pthread_t usb_io_thread, dd_thread;
 static pthread_mutex_t flag_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -102,13 +103,15 @@ static int ca8210_test_int_exchange(
 	void *pDeviceRef);
 
 //returns 1 for non-final fragment, 0 for final
-static int get_next_frag(uint8_t *buf_in, uint8_t len_in, uint8_t *frag_out){
+static int get_next_frag(uint8_t *buf_in, uint8_t len_in, uint8_t *frag_out)
+{
 	static uint8_t offset = 0;
 	int end_offset = offset + MAX_FRAG_SIZE - 1;
 	uint8_t is_first = 0, is_last = 0, frag_len = 0;
 	is_first = (offset == 0);
 
-	if(end_offset >= len_in){
+	if(end_offset >= len_in)
+	{
 		end_offset = len_in;
 		is_last = 1;
 	}
@@ -130,7 +133,8 @@ static int get_next_frag(uint8_t *buf_in, uint8_t len_in, uint8_t *frag_out){
 }
 
 //returns 1 for non-final fragment, 0 for final
-static int assemble_frags(uint8_t *frag_in, uint8_t *buf_out, uint8_t *len_out){
+static int assemble_frags(uint8_t *frag_in, uint8_t *buf_out, uint8_t *len_out)
+{
 	static uint8_t offset = 0;
 	uint8_t is_first = 0, is_last = 0, frag_len = 0;
 	frag_len = frag_in[0] & FRAG_LEN_MASK;
@@ -149,7 +153,8 @@ static int assemble_frags(uint8_t *frag_in, uint8_t *buf_out, uint8_t *len_out){
 }
 
 #ifdef TEST_ENABLE
-void test_frag_loopback(){
+void test_frag_loopback()
+{
 	uint8_t data_in[] = { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
 	                      0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11,
 	                      0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a,
@@ -175,7 +180,7 @@ void test_frag_loopback(){
 
 	do{
 		rval = get_next_frag(data_in, data_in_size, frag_buf);
-	}while(assemble_frags(frag_buf+1, data_out, &len));
+	} while(assemble_frags(frag_buf+1, data_out, &len));
 
 	assert(!rval); //make sure both assembly and deconstruction thought this was last frag
 	assert(len == data_in_size);
@@ -189,6 +194,7 @@ static void *ca821x_downstream_dispatch_worker(void *arg)
 {
 	uint8_t buffer[MAX_BUF_SIZE];
 	uint8_t len;
+	int rval;
 
 	pthread_mutex_lock(&flag_mutex);
 	while(worker_run_flag)
@@ -200,7 +206,12 @@ static void *ca821x_downstream_dispatch_worker(void *arg)
 		len = pop_from_queue(&downstream_dispatch_queue, &downstream_queue_mutex,
 		                     buffer, MAX_BUF_SIZE);
 
-		if(len > 0) ca821x_downstream_dispatch(buffer, len);
+		if(len > 0) rval = ca821x_downstream_dispatch(buffer, len, NULL); //TODO: Include an actual pDeviceRef
+
+		if(rval < 0 && user_callback)
+		{
+			user_callback(buffer, len, NULL); //TODO: Include an actual pDeviceRef
+		}
 
 		pthread_mutex_lock(&flag_mutex);
 	}
@@ -253,18 +264,22 @@ static void *ca8210_test_int_worker(void *arg)
 		//Send any queued messages
 		len = pop_from_queue(&out_buffer_queue, &out_queue_mutex, buffer, MAX_BUF_SIZE);
 
-		if(len > 0){
+		if(len > 0)
+		{
 			do{
 				rval = get_next_frag(buffer, len, frag_buf);
 				error = hid_write(hid_dev, frag_buf, MAX_FRAG_SIZE + 1);
 			} while(rval);
 		}
 
-		if(error < 0){
-			if(error_callback){
+		if(error < 0)
+		{
+			if(error_callback)
+			{
 				error_callback(usb_exchange_err_usb);
 			}
-			else{
+			else
+			{
 				abort();
 			}
 		}
@@ -277,11 +292,13 @@ static void *ca8210_test_int_worker(void *arg)
 	return 0;
 }
 
-int usb_exchange_init(void){
+int usb_exchange_init(void)
+{
 	return usb_exchange_init_withhandler(NULL);
 }
 
-int usb_exchange_init_withhandler(usb_exchange_errorhandler callback){
+int usb_exchange_init_withhandler(usb_exchange_errorhandler callback)
+{
 	struct hid_device_info *hid_ll, *hid_cur;
 	hid_device *hid_dev;
 	int rval, error = 0;
@@ -292,7 +309,8 @@ int usb_exchange_init_withhandler(usb_exchange_errorhandler callback){
 	error_callback = callback;
 
 	hid_ll = hid_enumerate(USB_VID, USB_PID);
-	if(!hid_ll){
+	if(!hid_ll)
+	{
 		error = -1;
 		goto exit;
 	}
@@ -308,7 +326,8 @@ int usb_exchange_init_withhandler(usb_exchange_errorhandler callback){
 
 	//For now, just use the first
 	hid_dev = hid_open_path(hid_ll->path);
-	if(!hid_dev){
+	if(!hid_dev)
+	{
 		error = -1;
 		goto exit;
 	}
@@ -342,8 +361,18 @@ exit:
 	return error;
 }
 
+int usb_exchange_register_user_callback(usb_exchange_user_callback callback)
+{
+	if(user_callback) return -1;
 
-void usb_exchange_deinit(void){
+	user_callback = callback;
+
+	return 0;
+}
+
+
+void usb_exchange_deinit(void)
+{
 	initialised = 0;
 	pthread_mutex_lock(&flag_mutex);
 	worker_run_flag = 0;
@@ -359,16 +388,25 @@ void usb_exchange_deinit(void){
 }
 
 
-int ca8210_test_int_reset(unsigned long resettime){
+int ca8210_test_int_reset(unsigned long resettime)
+{
 	return -1;
+}
+
+int usb_exchange_user_send(const uint8_t *buf, size_t len, void *pDeviceRef)
+{
+	assert(!(buf[0] & SPI_SYN));
+	assert(len < MAX_BUF_SIZE);
+	if(!initialised) return -1;
+	add_to_queue(&out_buffer_queue, &out_queue_mutex, buf, len);
+	return 0;
 }
 
 static int ca8210_test_int_exchange(
 	const uint8_t *buf,
 	size_t len,
 	uint8_t *response,
-	void *pDeviceRef
-)
+	void *pDeviceRef)
 {
 	const uint8_t isSynchronous = ((buf[0] & SPI_SYN) && response);
 
@@ -394,19 +432,22 @@ static int ca8210_test_int_exchange(
 
 static void add_to_queue(struct buffer_queue **head_buffer_queue,
                          pthread_mutex_t *buf_queue_mutex,
-                         const uint8_t *buf, size_t len){
-
-	pthread_mutex_lock(buf_queue_mutex);
+                         const uint8_t *buf, size_t len)
+{
+	if(pthread_mutex_lock(buf_queue_mutex))
 	{
 		struct buffer_queue *nextbuf = *head_buffer_queue;
-		if(nextbuf == NULL){
+		if(nextbuf == NULL)
+		{
 			//queue empty -> start new queue
 			*head_buffer_queue = malloc(sizeof(struct buffer_queue));
 			memset(*head_buffer_queue, 0, sizeof(struct buffer_queue));
 			nextbuf = *head_buffer_queue;
 		}
-		else{
-			while(nextbuf->next != NULL){
+		else
+		{
+			while(nextbuf->next != NULL)
+			{
 				nextbuf = nextbuf->next;
 			}
 			//allocate new buffer cell
@@ -426,18 +467,22 @@ static void add_to_queue(struct buffer_queue **head_buffer_queue,
 static void add_to_waiting_queue(struct buffer_queue **head_buffer_queue,
                                  pthread_mutex_t *buf_queue_mutex,
                                  pthread_cond_t *queue_cond,
-                                 const uint8_t *buf, size_t len){
-
-	if( pthread_mutex_lock(buf_queue_mutex) == 0){
+                                 const uint8_t *buf, size_t len)
+{
+	if(pthread_mutex_lock(buf_queue_mutex) == 0)
+	{
 		struct buffer_queue *nextbuf = *head_buffer_queue;
-		if(nextbuf == NULL){
+		if(nextbuf == NULL)
+		{
 			//queue empty -> start new queue
 			*head_buffer_queue = malloc(sizeof(struct buffer_queue));
 			memset(*head_buffer_queue, 0, sizeof(struct buffer_queue));
 			nextbuf = *head_buffer_queue;
 		}
-		else{
-			while(nextbuf->next != NULL){
+		else
+		{
+			while(nextbuf->next != NULL)
+			{
 				nextbuf = nextbuf->next;
 			}
 			//allocate new buffer cell
@@ -458,14 +503,15 @@ static void add_to_waiting_queue(struct buffer_queue **head_buffer_queue,
 
 static size_t pop_from_queue(struct buffer_queue **head_buffer_queue,
                              pthread_mutex_t *buf_queue_mutex,
-                             uint8_t * destBuf, size_t maxlen){
-
-	if(pthread_mutex_lock(buf_queue_mutex) == 0){
-
+                             uint8_t * destBuf, size_t maxlen)
+{
+	if(pthread_mutex_lock(buf_queue_mutex) == 0)
+	{
 		struct buffer_queue * current = *head_buffer_queue;
 		size_t len = 0;
 
-		if(*head_buffer_queue != NULL){
+		if(*head_buffer_queue != NULL)
+		{
 			*head_buffer_queue = current->next;
 			len = current->len;
 
@@ -486,11 +532,14 @@ static size_t pop_from_queue(struct buffer_queue **head_buffer_queue,
 
 //return the length of the next buffer in the queue if it exists, otherwise 0
 static size_t peek_queue(struct buffer_queue * head_buffer_queue,
-                             pthread_mutex_t *buf_queue_mutex){
+                             pthread_mutex_t *buf_queue_mutex)
+{
 	size_t in_queue = 0;
 
-	if(pthread_mutex_lock(buf_queue_mutex) == 0){
-		if(head_buffer_queue != NULL){
+	if(pthread_mutex_lock(buf_queue_mutex) == 0)
+	{
+		if(head_buffer_queue != NULL)
+		{
 			in_queue = head_buffer_queue->len;
 		}
 		pthread_mutex_unlock(buf_queue_mutex);
@@ -502,19 +551,22 @@ static size_t peek_queue(struct buffer_queue * head_buffer_queue,
 //it arrives. Returns length of buffer (or -1 upon error).
 static size_t wait_on_queue(struct buffer_queue ** head_buffer_queue,
                             pthread_mutex_t *buf_queue_mutex,
-                            pthread_cond_t *queue_cond){
+                            pthread_cond_t *queue_cond)
+{
 	size_t in_queue = -1;
 
-	if(pthread_mutex_lock(buf_queue_mutex) == 0){
-
+	if(pthread_mutex_lock(buf_queue_mutex) == 0)
+	{
 		do{
-			if(*head_buffer_queue != NULL){
+			if(*head_buffer_queue != NULL)
+			{
 				in_queue = (*head_buffer_queue)->len;
 			}
-			else{
+			else
+			{
 				pthread_cond_wait(queue_cond, buf_queue_mutex);
 			}
-		}while(in_queue == ((size_t)-1));
+		} while(in_queue == ((size_t)-1));
 		pthread_mutex_unlock(buf_queue_mutex);
 
 	}
