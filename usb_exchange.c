@@ -216,7 +216,7 @@ static void *ca8210_test_int_worker(void *arg)
 	uint8_t frag_buf[MAX_FRAG_SIZE+1]; //+1 for report ID
 	uint8_t delay;
 	uint8_t len;
-	int rval;
+	int rval, error;
 
 	pthread_mutex_lock(&flag_mutex);
 	while(worker_run_flag)
@@ -229,12 +229,12 @@ static void *ca8210_test_int_worker(void *arg)
 
 		//Read from the device if possible
 		do{
-			rval = hid_read_timeout(hid_dev, frag_buf, MAX_FRAG_SIZE, delay);
-			if(rval <= 0) break;
+			error = hid_read_timeout(hid_dev, frag_buf, MAX_FRAG_SIZE, delay);
+			if(error <= 0) break;
 			delay = -1;
 		} while(assemble_frags(frag_buf, buffer, &len));
 
-		if(rval > 0)
+		if(error > 0)
 		{
 			if(buffer[0] & SPI_SYN) //TODO: Take the filter byte into account
 			{
@@ -252,19 +252,22 @@ static void *ca8210_test_int_worker(void *arg)
 
 		//Send any queued messages
 		len = pop_from_queue(&out_buffer_queue, &out_queue_mutex, buffer, MAX_BUF_SIZE);
-		if (len <= 0) continue;
 
-		do{
-			rval = get_next_frag(buffer, len, frag_buf);
-			if(hid_write(hid_dev, frag_buf, MAX_FRAG_SIZE + 1) < 0){
-				if(error_callback){
-					error_callback(usb_exchange_err_usb);
-				}
-				else{
-					abort();
-				}
+		if(len > 0){
+			do{
+				rval = get_next_frag(buffer, len, frag_buf);
+				error = hid_write(hid_dev, frag_buf, MAX_FRAG_SIZE + 1) < 0);
+			} while(rval);
+		}
+
+		if(error < 0){
+			if(error_callback){
+				error_callback(usb_exchange_err_usb);
 			}
-		} while(rval);
+			else{
+				abort();
+			}
+		}
 
 		pthread_mutex_lock(&flag_mutex);
 	}
