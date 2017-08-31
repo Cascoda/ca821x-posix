@@ -434,7 +434,7 @@ static void add_to_queue(struct buffer_queue **head_buffer_queue,
                          pthread_mutex_t *buf_queue_mutex,
                          const uint8_t *buf, size_t len)
 {
-	if(pthread_mutex_lock(buf_queue_mutex))
+	if(pthread_mutex_lock(buf_queue_mutex) == 0)
 	{
 		struct buffer_queue *nextbuf = *head_buffer_queue;
 		if(nextbuf == NULL)
@@ -459,9 +459,8 @@ static void add_to_queue(struct buffer_queue **head_buffer_queue,
 		nextbuf->len = len;
 		nextbuf->buf = malloc(len);
 		memcpy(nextbuf->buf, buf, len);
-
+		pthread_mutex_unlock(buf_queue_mutex);
 	}
-	pthread_mutex_unlock(buf_queue_mutex);
 }
 
 static void add_to_waiting_queue(struct buffer_queue **head_buffer_queue,
