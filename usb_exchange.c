@@ -100,7 +100,7 @@ static int ca8210_test_int_exchange(
 	const uint8_t *buf,
 	size_t len,
 	uint8_t *response,
-	void *pDeviceRef);
+	struct ca821x_dev *pDeviceRef);
 
 //returns 1 for non-final fragment, 0 for final
 static int get_next_frag(uint8_t *buf_in, uint8_t len_in, uint8_t *frag_out)
@@ -292,12 +292,13 @@ static void *ca8210_test_int_worker(void *arg)
 	return 0;
 }
 
-int usb_exchange_init(void)
+int usb_exchange_init(struct ca821x_dev *pDeviceRef)
 {
-	return usb_exchange_init_withhandler(NULL);
+	return usb_exchange_init_withhandler(NULL, pDeviceRef);
 }
 
-int usb_exchange_init_withhandler(usb_exchange_errorhandler callback)
+int usb_exchange_init_withhandler(usb_exchange_errorhandler callback,
+                                  struct ca821x_dev *pDeviceRef)
 {
 	struct hid_device_info *hid_ll, *hid_cur;
 	hid_device *hid_dev;
@@ -352,7 +353,7 @@ int usb_exchange_init_withhandler(usb_exchange_errorhandler callback)
 		goto exit;
 	}
 
-	ca821x_api_downstream = ca8210_test_int_exchange;
+	pDeviceRef->ca821x_api_downstream = ca8210_test_int_exchange;
 
 	initialised = 1;
 
@@ -361,7 +362,8 @@ exit:
 	return error;
 }
 
-int usb_exchange_register_user_callback(usb_exchange_user_callback callback)
+int usb_exchange_register_user_callback(usb_exchange_user_callback callback,
+                                        struct ca821x_dev *pDeviceRef)
 {
 	if(user_callback) return -1;
 
@@ -371,7 +373,7 @@ int usb_exchange_register_user_callback(usb_exchange_user_callback callback)
 }
 
 
-void usb_exchange_deinit(void)
+void usb_exchange_deinit(struct ca821x_dev *pDeviceRef)
 {
 	initialised = 0;
 	pthread_mutex_lock(&flag_mutex);
@@ -388,12 +390,13 @@ void usb_exchange_deinit(void)
 }
 
 
-int ca8210_test_int_reset(unsigned long resettime)
+int ca8210_test_int_reset(unsigned long resettime, struct ca821x_dev *pDeviceRef)
 {
 	return -1;
 }
 
-int usb_exchange_user_send(const uint8_t *buf, size_t len, void *pDeviceRef)
+int usb_exchange_user_send(const uint8_t *buf, size_t len,
+                           struct ca821x_dev *pDeviceRef)
 {
 	assert(!(buf[0] & SPI_SYN));
 	assert(len < MAX_BUF_SIZE);
@@ -406,7 +409,7 @@ static int ca8210_test_int_exchange(
 	const uint8_t *buf,
 	size_t len,
 	uint8_t *response,
-	void *pDeviceRef)
+	struct ca821x_dev *pDeviceRef)
 {
 	const uint8_t isSynchronous = ((buf[0] & SPI_SYN) && response);
 

@@ -32,6 +32,7 @@
 #ifndef USB_EXCHANGE_H
 #define USB_EXCHANGE_H
 
+#include "ca821x_api.h"
 #define TEST_ENABLE 1
 
 enum usb_exchange_errors {
@@ -79,7 +80,7 @@ typedef int (*usb_exchange_user_callback)(
  * @returns 0 for success, -1 for error, 1 if already initialised
  *
  */
-int usb_exchange_init(void);
+int usb_exchange_init(struct ca821x_dev *pDeviceRef);
 
 /**
  * Initialise the usb exchange, using the supplied errorhandling callback to
@@ -91,7 +92,8 @@ int usb_exchange_init(void);
  * @returns 0 for success, -1 for error
  *
  */
-int usb_exchange_init_withhandler(usb_exchange_errorhandler callback);
+int usb_exchange_init_withhandler(usb_exchange_errorhandler callback,
+                                  struct ca821x_dev *pDeviceRef);
 
 /**
  * Registers the callback to call for any non-ca821x commands that are sent over
@@ -104,7 +106,8 @@ int usb_exchange_init_withhandler(usb_exchange_errorhandler callback);
  * @returns 0 for success, -1 for error
  *
  */
-int usb_exchange_register_user_callback(usb_exchange_user_callback callback);
+int usb_exchange_register_user_callback(usb_exchange_user_callback callback,
+                                        struct ca821x_dev *pDeviceRef);
 
 /**
  * Sends a USB command over the USB interface using the TLV format from ca821x-spi.
@@ -125,14 +128,15 @@ int usb_exchange_register_user_callback(usb_exchange_user_callback callback);
  * @returns 0 for success, -1 for error
  *
  */
-int usb_exchange_user_send(const uint8_t *buf, size_t len, void *pDeviceRef);
+int usb_exchange_user_send(const uint8_t *buf, size_t len,
+                           struct ca821x_dev *pDeviceRef);
 
 /**
  * Deinitialise the usb exchange, so that it can be reinitialised by another
  * process, or reopened later.
  *
  */
-void usb_exchange_deinit(void);
+void usb_exchange_deinit(struct ca821x_dev *pDeviceRef);
 
 /**
  * Send a hard reset to the ca8210. This should not be necessary, but is provided
@@ -143,7 +147,7 @@ void usb_exchange_deinit(void);
  *
  *
  */
-int ca8210_test_int_reset(unsigned long resettime);
+int ca8210_test_int_reset(unsigned long resettime, struct ca821x_dev *pDeviceRef);
 
 #ifdef TEST_ENABLE
 	//Run to test fragmentation. Crashes upon fail.
