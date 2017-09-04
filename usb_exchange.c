@@ -59,6 +59,12 @@ struct usb_exchange_priv {
 	hid_device *hid_dev;
 	usb_exchange_errorhandler error_callback;
 	usb_exchange_user_callback user_callback;
+
+	//Synchronous queue
+	pthread_cond_t *sync_cond; //Todo: initialise all of this
+	pthread_mutex_t *sync_mutex;
+	pthread_mutex_t *in_queue_mutex;
+	struct buffer_queue *in_buffer_queue;
 };
 
 struct ca821x_dev *s_devs[USB_MAX_DEVICES] = {0};
@@ -67,10 +73,8 @@ int s_initialised, s_worker_run_flag, s_devcount = 0;
 
 static pthread_t usb_io_thread, dd_thread;
 static pthread_mutex_t flag_mutex = PTHREAD_MUTEX_INITIALIZER,
-                       sync_mutex = PTHREAD_MUTEX_INITIALIZER,
                        devs_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t sync_cond = PTHREAD_COND_INITIALIZER,
-                      dd_cond = PTHREAD_COND_INITIALIZER;
+static pthread_cond_t dd_cond = PTHREAD_COND_INITIALIZER;
 
 struct buffer_queue{
 	size_t len;
@@ -81,11 +85,9 @@ struct buffer_queue{
 
 //In queue = Device to host(us)
 //Out queue = Host(us) to device
-static struct buffer_queue *in_buffer_queue = NULL,
-                           *out_buffer_queue = NULL,
+static struct buffer_queue *out_buffer_queue = NULL,
                            *downstream_dispatch_queue = NULL;
-static pthread_mutex_t in_queue_mutex = PTHREAD_MUTEX_INITIALIZER,
-                       out_queue_mutex = PTHREAD_MUTEX_INITIALIZER,
+static pthread_mutex_t out_queue_mutex = PTHREAD_MUTEX_INITIALIZER,
                        downstream_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static void add_to_queue(struct buffer_queue **head_buffer_queue,
@@ -308,8 +310,8 @@ static void *ca8210_test_int_worker(void *arg)
 			if(buffer[0] & SPI_SYN)
 			{
 				//Add to queue for synchronous processing
-				add_to_waiting_queue(&in_buffer_queue, &in_queue_mutex,
-				                     &sync_cond, buffer, len, pDeviceRef);
+				add_to_waiting_queue(&(priv->in_buffer_queue), &(priv->in_queue_mutex),
+				                     priv->sync_cond, buffer, len, pDeviceRef);
 			}
 			else
 			{
@@ -461,6 +463,11 @@ int usb_exchange_init_withhandler(usb_exchange_errorhandler callback,
 		}
 	}
 
+	//Set up the pthread primitives for the device
+	pthread_mutex_init(priv->sync_mutex, NULL);
+	pthread_mutex_init(priv->in_queue_mutex, NULL);
+	pthread_cond_init(priv->sync_cond, NULL);
+
 	pDeviceRef->ca821x_api_downstream = ca8210_test_int_exchange;
 
 exit:
@@ -507,6 +514,9 @@ void usb_exchange_deinit(struct ca821x_dev *pDeviceRef)
 
 	if(total_deinit) deinit_statics();
 
+	pthread_mutex_destroy(priv->sync_mutex, NULL);
+	pthread_mutex_destroy(priv->in_queue_mutex, NULL);
+	pthread_cond_destroy(priv->sync_cond, NULL);
 	priv->error_callback = NULL;
 	free(priv);
 	pDeviceRef->exchange_context = NULL;
@@ -535,6 +545,7 @@ static int ca8210_test_int_exchange(
 	struct ca821x_dev *pDeviceRef)
 {
 	const uint8_t isSynchronous = ((buf[0] & SPI_SYN) && response);
+	struct usb_exchange_priv *priv = pDeviceRef->exchange_context;
 	struct ca821x_dev *ref_out;
 
 	if(!s_initialised) return -1;
@@ -542,21 +553,19 @@ static int ca8210_test_int_exchange(
 	//Get sync responses from the in queue
 	//Send messages by adding them to the out queue
 
-	if(isSynchronous) pthread_mutex_lock(&sync_mutex);
+	if(isSynchronous) pthread_mutex_lock(priv->sync_mutex);
 
 	add_to_queue(&out_buffer_queue, &out_queue_mutex, buf, len, pDeviceRef);
 
 	if(!isSynchronous) return 0;
 
-	wait_on_queue(&in_buffer_queue, &in_queue_mutex, &sync_cond);
+	wait_on_queue(&(priv->in_buffer_queue), &(priv->in_queue_mutex), priv->sync_cond);
 
-	pop_from_queue(&in_buffer_queue, &in_queue_mutex, response, sizeof(struct MAC_Message), &ref_out);
+	pop_from_queue(&(priv->in_buffer_queue), &(priv->in_queue_mutex), response,
+	               sizeof(struct MAC_Message), &ref_out);
 
-	//TODO: In future, allow different devices to carry out synchronous commands
-	//at the same time. However, at the moment, this indicates a fatal error.
-	//Potential solution is to have a different sync queue for each device.
 	assert(ref_out == pDeviceRef);
-	pthread_mutex_unlock(&sync_mutex);
+	pthread_mutex_unlock(priv->sync_mutex);
 
 	return 0;
 }
