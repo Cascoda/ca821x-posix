@@ -61,7 +61,7 @@ struct usb_exchange_priv {
 	usb_exchange_user_callback user_callback;
 };
 
-struct ca821x_dev s_devs[USB_MAX_DEVICES] = {0};
+struct ca821x_dev *s_devs[USB_MAX_DEVICES] = {0};
 
 int s_initialised, s_worker_run_flag, s_devcount = 0;
 
@@ -231,7 +231,7 @@ static void *ca821x_downstream_dispatch_worker(void *arg)
 
 		if(rval < 0 && priv->user_callback)
 		{
-			user_callback(buffer, len, pDeviceRef);
+			priv->user_callback(buffer, len, pDeviceRef);
 		}
 
 		pthread_mutex_lock(&flag_mutex);
@@ -241,13 +241,12 @@ static void *ca821x_downstream_dispatch_worker(void *arg)
 	return 0;
 }
 
-static struct usb_exchange_priv *get_next_io_dev()
+static struct ca821x_dev *get_next_io_dev()
 {
 	static size_t i = 0, ni = 0;
 	static pthread_mutex_t fmut = PTHREAD_MUTEX_INITIALIZER;
 
 	struct ca821x_dev *pDeviceRef;
-	struct usb_exchange_priv *priv;
 
 	pthread_mutex_lock(&fmut);
 	pthread_mutex_lock(&devs_mutex);
@@ -256,11 +255,10 @@ static struct usb_exchange_priv *get_next_io_dev()
 	} while(s_devs[ni] == NULL && ni != i);
 	i = ni;
 	pDeviceRef = s_devs[i];
-	priv = pDeviceRef->exchange_context;
 	pthread_mutex_unlock(&devs_mutex);
 	pthread_mutex_unlock(&fmut);
 
-	return priv;
+	return pDeviceRef;
 }
 
 static void *ca8210_test_int_worker(void *arg)
@@ -295,7 +293,8 @@ static void *ca8210_test_int_worker(void *arg)
 		}
 
 		//Focus the next device
-		priv = get_next_io_dev();
+		pDeviceRef = get_next_io_dev();
+		priv = pDeviceRef->exchange_context;
 
 		//Read from the device if possible
 		do{
@@ -310,14 +309,14 @@ static void *ca8210_test_int_worker(void *arg)
 			{
 				//Add to queue for synchronous processing
 				add_to_waiting_queue(&in_buffer_queue, &in_queue_mutex,
-				                     &sync_cond, buffer, len);
+				                     &sync_cond, buffer, len, pDeviceRef);
 			}
 			else
 			{
 				//Add to queue for dispatching downstream
 				add_to_waiting_queue(&downstream_dispatch_queue,
 				                     &downstream_queue_mutex,
-				                     &dd_cond, buffer, len);
+				                     &dd_cond, buffer, len, pDeviceRef);
 			}
 		}
 
@@ -439,7 +438,7 @@ int usb_exchange_init_withhandler(usb_exchange_errorhandler callback,
 	//TODO: Give some capability to choose which Chili is opened.
 	printf("%d Chilis found.\n", count);
 
-	pDeviceRef->exchange_context = calloc(sizeof(struct usb_exchange_priv));
+	pDeviceRef->exchange_context = calloc(1, sizeof(struct usb_exchange_priv));
 	priv = pDeviceRef->exchange_context;
 	priv->error_callback = callback;
 
@@ -478,9 +477,11 @@ exit:
 int usb_exchange_register_user_callback(usb_exchange_user_callback callback,
                                         struct ca821x_dev *pDeviceRef)
 {
-	if(user_callback) return -1;
+	struct usb_exchange_priv *priv = pDeviceRef->exchange_context;
 
-	user_callback = callback;
+	if(priv->user_callback) return -1;
+
+	priv->user_callback = callback;
 
 	return 0;
 }
@@ -534,6 +535,7 @@ static int ca8210_test_int_exchange(
 	struct ca821x_dev *pDeviceRef)
 {
 	const uint8_t isSynchronous = ((buf[0] & SPI_SYN) && response);
+	struct ca821x_dev *ref_out;
 
 	if(!s_initialised) return -1;
 	//Synchronous must execute synchronously
@@ -548,8 +550,12 @@ static int ca8210_test_int_exchange(
 
 	wait_on_queue(&in_buffer_queue, &in_queue_mutex, &sync_cond);
 
-	pop_from_queue(&in_buffer_queue, &in_queue_mutex, response, sizeof(struct MAC_Message));
+	pop_from_queue(&in_buffer_queue, &in_queue_mutex, response, sizeof(struct MAC_Message), &ref_out);
 
+	//TODO: In future, allow different devices to carry out synchronous commands
+	//at the same time. However, at the moment, this indicates a fatal error.
+	//Potential solution is to have a different sync queue for each device.
+	assert(ref_out == pDeviceRef);
 	pthread_mutex_unlock(&sync_mutex);
 
 	return 0;

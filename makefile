@@ -1,6 +1,6 @@
 TARGET = libca8210.a
 LIBS = -lm
-CFLAGS = -g -Wall -pthread
+CFLAGS = -g -Wall -pthread -std=c99
 INCLUDEDIR = ca821x-api/include/
 SOURCEDIR = ./
 SUBDIRS = ca821x-api
