@@ -310,7 +310,7 @@ static void *ca8210_test_int_worker(void *arg)
 			if(buffer[0] & SPI_SYN)
 			{
 				//Add to queue for synchronous processing
-				add_to_waiting_queue(&(priv->in_buffer_queue), &(priv->in_queue_mutex),
+				add_to_waiting_queue(&(priv->in_buffer_queue), priv->in_queue_mutex,
 				                     priv->sync_cond, buffer, len, pDeviceRef);
 			}
 			else
@@ -514,9 +514,9 @@ void usb_exchange_deinit(struct ca821x_dev *pDeviceRef)
 
 	if(total_deinit) deinit_statics();
 
-	pthread_mutex_destroy(priv->sync_mutex, NULL);
-	pthread_mutex_destroy(priv->in_queue_mutex, NULL);
-	pthread_cond_destroy(priv->sync_cond, NULL);
+	pthread_mutex_destroy(priv->sync_mutex);
+	pthread_mutex_destroy(priv->in_queue_mutex);
+	pthread_cond_destroy(priv->sync_cond);
 	priv->error_callback = NULL;
 	free(priv);
 	pDeviceRef->exchange_context = NULL;
@@ -559,9 +559,9 @@ static int ca8210_test_int_exchange(
 
 	if(!isSynchronous) return 0;
 
-	wait_on_queue(&(priv->in_buffer_queue), &(priv->in_queue_mutex), priv->sync_cond);
+	wait_on_queue(&(priv->in_buffer_queue), priv->in_queue_mutex, priv->sync_cond);
 
-	pop_from_queue(&(priv->in_buffer_queue), &(priv->in_queue_mutex), response,
+	pop_from_queue(&(priv->in_buffer_queue), priv->in_queue_mutex, response,
 	               sizeof(struct MAC_Message), &ref_out);
 
 	assert(ref_out == pDeviceRef);
