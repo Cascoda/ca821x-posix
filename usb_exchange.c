@@ -35,6 +35,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <assert.h>
+#include <unistd.h>
 
 #include "hidapi/hidapi/hidapi.h"
 #include "usb_exchange.h"
@@ -74,7 +75,8 @@ int s_initialised, s_worker_run_flag, s_devcount = 0;
 static pthread_t usb_io_thread, dd_thread;
 static pthread_mutex_t flag_mutex = PTHREAD_MUTEX_INITIALIZER,
                        devs_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t dd_cond = PTHREAD_COND_INITIALIZER;
+static pthread_cond_t dd_cond = PTHREAD_COND_INITIALIZER,
+                      devs_cond = PTHREAD_COND_INITIALIZER;
 
 struct buffer_queue{
 	size_t len;
@@ -278,7 +280,16 @@ static void *ca8210_test_int_worker(void *arg)
 		pthread_mutex_unlock(&flag_mutex);
 
 		pthread_mutex_lock(&devs_mutex);
-		devi = (devi+1) % s_devcount;
+		if(s_devcount == 0)
+		{
+			pthread_cond_wait(&devs_cond, &devs_mutex);
+			pthread_mutex_unlock(&devs_mutex);
+			goto end_loop;
+		}
+		else
+		{
+			devi = (devi+1) % s_devcount;
+		}
 		pthread_mutex_unlock(&devs_mutex);
 
 		if(devi != 0)
@@ -347,6 +358,7 @@ static void *ca8210_test_int_worker(void *arg)
 			}
 		}
 
+	end_loop:
 		pthread_mutex_lock(&flag_mutex);
 	}
 
@@ -454,6 +466,7 @@ int usb_exchange_init_withhandler(usb_exchange_errorhandler callback,
 
 	//Add the new device to the device list for io
 	s_devcount++;
+	pthread_cond_signal(&devs_cond);
 	for(int i = 0; i < USB_MAX_DEVICES; i++)
 	{
 		if(s_devs[i] == NULL)
@@ -501,7 +514,8 @@ void usb_exchange_deinit(struct ca821x_dev *pDeviceRef)
 
 	pthread_mutex_lock(&devs_mutex);
 	s_devcount--;
-	if(s_devcount == 0) total_deinit = 1;
+	if(s_devcount == 0) deinit_statics();
+	pthread_cond_signal(&devs_cond);
 	for(int i = 0; i < USB_MAX_DEVICES; i++)
 	{
 		if(s_devs[i] == pDeviceRef)
@@ -511,8 +525,6 @@ void usb_exchange_deinit(struct ca821x_dev *pDeviceRef)
 		}
 	}
 	pthread_mutex_unlock(&devs_mutex);
-
-	if(total_deinit) deinit_statics();
 
 	pthread_mutex_destroy(priv->sync_mutex);
 	pthread_mutex_destroy(priv->in_queue_mutex);
