@@ -254,8 +254,9 @@ static struct ca821x_dev *get_next_io_dev()
 
 	pthread_mutex_lock(&fmut);
 	pthread_mutex_lock(&devs_mutex);
+	ni = i;
 	do{
-		ni = (i + 1) % USB_MAX_DEVICES;
+		ni = (ni + 1) % USB_MAX_DEVICES;
 	} while(s_devs[ni] == NULL && ni != i);
 	i = ni;
 	pDeviceRef = s_devs[i];
