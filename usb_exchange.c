@@ -424,7 +424,7 @@ int usb_exchange_init_withhandler(usb_exchange_errorhandler callback,
 	if(!s_initialised)
 	{
 		error = init_statics();
-		return error;
+		if(error) return error;
 	}
 
 	if(pDeviceRef->exchange_context) return 1;
@@ -510,7 +510,6 @@ int usb_exchange_register_user_callback(usb_exchange_user_callback callback,
 void usb_exchange_deinit(struct ca821x_dev *pDeviceRef)
 {
 	struct usb_exchange_priv *priv = pDeviceRef->exchange_context;
-	int total_deinit = 0;
 
 	pthread_mutex_lock(&devs_mutex);
 	s_devcount--;
