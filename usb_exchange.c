@@ -420,7 +420,9 @@ int is_hidpath_in_use(char *path)
 	int rval;
 	for(int i = 0; i < USB_MAX_DEVICES; i++)
 	{
-		rval = strcmp(path, s_devs[i]);
+		if(!s_devs[i]) continue;
+		struct usb_exchange_priv *cur = s_devs[i]->exchange_context;
+		rval = strcmp(path, cur->hid_path);
 		if(rval == 0) return 1;
 	}
 	return 0;
