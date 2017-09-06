@@ -479,11 +479,12 @@ int usb_exchange_init_withhandler(usb_exchange_errorhandler callback,
 	priv = pDeviceRef->exchange_context;
 	priv->error_callback = callback;
 
+	//Todo: If can't open first dev, try the next one
 	//For now, just use the first compatible HID
-	len = strlen(hid_ll->path);
+	len = strlen(hid_cur->path);
 	priv->hid_path = calloc(1, len+1);
-	strncpy(priv->hid_path, hid_ll->path, len);
-	priv->hid_dev = hid_open_path(hid_ll->path);
+	strncpy(priv->hid_path, hid_cur->path, len);
+	priv->hid_dev = hid_open_path(hid_cur->path);
 	if(priv->hid_dev == NULL)
 	{
 		error = -1;
