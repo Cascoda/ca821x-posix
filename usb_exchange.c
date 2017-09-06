@@ -343,7 +343,7 @@ static void *ca8210_test_int_worker(void *arg)
 			offset = 0;
 			priv = pDeviceRef->exchange_context;
 			do{
-				rval = get_next_frag(buffer, len, frag_buf);
+				rval = get_next_frag(buffer, len, frag_buf, &offset);
 				error = hid_write(priv->hid_dev, frag_buf, MAX_FRAG_SIZE + 1);
 			} while(rval);
 		}
