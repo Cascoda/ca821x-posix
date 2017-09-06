@@ -125,19 +125,18 @@ static int ca8210_test_int_exchange(const uint8_t *buf,
                                     struct ca821x_dev *pDeviceRef);
 
 //returns 1 for non-final fragment, 0 for final
-static int get_next_frag(uint8_t *buf_in, uint8_t len_in, uint8_t *frag_out)
+static int get_next_frag(uint8_t *buf_in, uint8_t len_in, uint8_t *frag_out, uint8_t *offset)
 {
-	static uint8_t offset = 0;
-	int end_offset = offset + MAX_FRAG_SIZE - 1;
+	int end_offset = *offset + MAX_FRAG_SIZE - 1;
 	uint8_t is_first = 0, is_last = 0, frag_len = 0;
-	is_first = (offset == 0);
+	is_first = (*offset == 0);
 
 	if(end_offset >= len_in)
 	{
 		end_offset = len_in;
 		is_last = 1;
 	}
-	frag_len = end_offset - offset;
+	frag_len = end_offset - *offset;
 
 	assert((frag_len & FRAG_LEN_MASK) == frag_len);
 
@@ -146,31 +145,30 @@ static int get_next_frag(uint8_t *buf_in, uint8_t len_in, uint8_t *frag_out)
 	frag_out[1] |= frag_len;
 	frag_out[1] |= is_first ? FRAG_FIRST_MASK : 0;
 	frag_out[1] |= is_last ? FRAG_LAST_MASK : 0;
-	memcpy(&frag_out[2], &buf_in[offset], frag_len);
+	memcpy(&frag_out[2], &buf_in[*offset], frag_len);
 
-	offset = end_offset;
+	*offset = end_offset;
 
-	if(is_last) offset = 0;
+	if(is_last) *offset = 0;
 	return !is_last;
 }
 
 //returns 1 for non-final fragment, 0 for final
-static int assemble_frags(uint8_t *frag_in, uint8_t *buf_out, uint8_t *len_out)
+static int assemble_frags(uint8_t *frag_in, uint8_t *buf_out, uint8_t *len_out, uint8_t *offset)
 {
-	static uint8_t offset = 0;
 	uint8_t is_first = 0, is_last = 0, frag_len = 0;
 	frag_len = frag_in[0] & FRAG_LEN_MASK;
 	is_last = !!(frag_in[0] & FRAG_LAST_MASK);
 	is_first = !!(frag_in[0] & FRAG_FIRST_MASK);
 
-	assert((is_first) == (offset == 0));
+	assert((is_first) == (*offset == 0));
 
-	memcpy(&buf_out[offset], &frag_in[1], frag_len);
+	memcpy(&buf_out[*offset], &frag_in[1], frag_len);
 
-	offset += frag_len;
-	*len_out = offset;
+	*offset += frag_len;
+	*len_out = *offset;
 
-	if(is_last) offset = 0;
+	if(is_last) *offset = 0;
 	return !is_last;
 }
 
@@ -198,11 +196,11 @@ void test_frag_loopback()
 	int data_in_size = sizeof(data_in)/sizeof(data_in[0]);
 	uint8_t data_out[MAX_BUF_SIZE];
 	uint8_t frag_buf[MAX_FRAG_SIZE+1];
-	uint8_t len, rval;
+	uint8_t len, rval, offset1 = 0, offset2 = 0;
 
 	do{
-		rval = get_next_frag(data_in, data_in_size, frag_buf);
-	} while(assemble_frags(frag_buf+1, data_out, &len));
+		rval = get_next_frag(data_in, data_in_size, frag_buf, &offset1);
+	} while(assemble_frags(frag_buf+1, data_out, &len, &offset2));
 
 	assert(!rval); //make sure both assembly and deconstruction thought this was last frag
 	assert(len == data_in_size);
@@ -274,7 +272,7 @@ static void *ca8210_test_int_worker(void *arg)
 	uint8_t buffer[MAX_BUF_SIZE];
 	uint8_t frag_buf[MAX_FRAG_SIZE+1]; //+1 for report ID
 	uint8_t delay, len;
-	int rval, error, devi = 0;
+	int rval, error, offset, devi = 0;
 
 	pthread_mutex_lock(&flag_mutex);
 	while(s_worker_run_flag)
@@ -312,11 +310,12 @@ static void *ca8210_test_int_worker(void *arg)
 		priv = pDeviceRef->exchange_context;
 
 		//Read from the device if possible
+		offset = 0;
 		do{
 			error = hid_read_timeout(priv->hid_dev, frag_buf, MAX_FRAG_SIZE, delay);
 			if(error <= 0) break;
 			delay = -1;
-		} while(assemble_frags(frag_buf, buffer, &len));
+		} while(assemble_frags(frag_buf, buffer, &len, &offset));
 
 		if(error > 0)
 		{
@@ -341,6 +340,7 @@ static void *ca8210_test_int_worker(void *arg)
 
 		if(len > 0)
 		{
+			offset = 0;
 			priv = pDeviceRef->exchange_context;
 			do{
 				rval = get_next_frag(buffer, len, frag_buf);
