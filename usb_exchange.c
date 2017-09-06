@@ -428,14 +428,22 @@ int is_hidpath_in_use(char *path)
 	return 0;
 }
 
+struct hid_device_info *get_next_hid(struct hid_device_info *hid_cur)
+{
+	do{
+		if(!is_hidpath_in_use(hid_cur->path)) break;
+		hid_cur = hid_cur->next;
+	} while(hid_cur != NULL);
+
+	return hid_cur;
+}
+
 int usb_exchange_init_withhandler(usb_exchange_errorhandler callback,
                                   struct ca821x_dev *pDeviceRef)
 {
 	struct hid_device_info *hid_ll = NULL, *hid_cur = NULL;
 	struct usb_exchange_priv *priv = NULL;
 	int error = 0;
-	int count = 0;
-	size_t len = 0;
 
 	if(!s_initialised)
 	{
@@ -462,31 +470,27 @@ int usb_exchange_init_withhandler(usb_exchange_errorhandler callback,
 
 	//Iterate through compatible HIDs until one is found that hasn't already
 	//been opened.
-	hid_cur = hid_ll;
-	do{
-		if(!is_hidpath_in_use(hid_cur->path)) break;
-		count++;
-		hid_cur = hid_cur->next;
-	} while(hid_cur != NULL);
+	hid_cur = get_next_hid(hid_ll);
+	while(hid_cur != NULL)
+	{
+		size_t len = 0;
+		hid_device *dev = hid_open_path(hid_cur->path);
+		if(dev == NULL)
+		{
+			hid_cur = get_next_hid(hid_cur);
+			continue;
+		}
+		pDeviceRef->exchange_context = calloc(1, sizeof(struct usb_exchange_priv));
+		priv = pDeviceRef->exchange_context;
+		priv->error_callback = callback;
 
+		len = strlen(hid_cur->path);
+		priv->hid_path = calloc(1, len+1);
+		strncpy(priv->hid_path, hid_cur->path, len);
+		priv->hid_dev = dev;
+	}
 	if(hid_cur == NULL)
 	{ //Device not found
-		error = -1;
-		goto exit;
-	}
-
-	pDeviceRef->exchange_context = calloc(1, sizeof(struct usb_exchange_priv));
-	priv = pDeviceRef->exchange_context;
-	priv->error_callback = callback;
-
-	//Todo: If can't open first dev, try the next one
-	//For now, just use the first compatible HID
-	len = strlen(hid_cur->path);
-	priv->hid_path = calloc(1, len+1);
-	strncpy(priv->hid_path, hid_cur->path, len);
-	priv->hid_dev = hid_open_path(hid_cur->path);
-	if(priv->hid_dev == NULL)
-	{
 		error = -1;
 		goto exit;
 	}
