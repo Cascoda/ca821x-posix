@@ -271,8 +271,8 @@ static void *ca8210_test_int_worker(void *arg)
 	struct usb_exchange_priv *priv;
 	uint8_t buffer[MAX_BUF_SIZE];
 	uint8_t frag_buf[MAX_FRAG_SIZE+1]; //+1 for report ID
-	uint8_t delay, len;
-	int rval, error, offset, devi = 0;
+	uint8_t delay, len, offset;
+	int rval, error, devi = 0;
 
 	pthread_mutex_lock(&flag_mutex);
 	while(s_worker_run_flag)
