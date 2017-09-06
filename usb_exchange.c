@@ -58,6 +58,7 @@
 
 struct usb_exchange_priv {
 	hid_device *hid_dev;
+	char *hid_path;
 	usb_exchange_errorhandler error_callback;
 	usb_exchange_user_callback user_callback;
 
@@ -414,6 +415,17 @@ int usb_exchange_init(struct ca821x_dev *pDeviceRef)
 	return usb_exchange_init_withhandler(NULL, pDeviceRef);
 }
 
+int is_hidpath_in_use(char *path)
+{
+	int rval;
+	for(int i = 0; i < USB_MAX_DEVICES; i++)
+	{
+		rval = strcmp(path, s_devs[i]);
+		if(rval == 0) return 1;
+	}
+	return 0;
+}
+
 int usb_exchange_init_withhandler(usb_exchange_errorhandler callback,
                                   struct ca821x_dev *pDeviceRef)
 {
@@ -421,6 +433,7 @@ int usb_exchange_init_withhandler(usb_exchange_errorhandler callback,
 	struct usb_exchange_priv *priv = NULL;
 	int error = 0;
 	int count = 0;
+	size_t len = 0;
 
 	if(!s_initialised)
 	{
@@ -444,20 +457,30 @@ int usb_exchange_init_withhandler(usb_exchange_errorhandler callback,
 		error = -1;
 		goto exit;
 	}
+
+	//Iterate through compatible HIDs until one is found that hasn't already
+	//been opened.
 	hid_cur = hid_ll;
 	do{
+		if(!is_hidpath_in_use(hid_cur->path)) break;
 		count++;
 		hid_cur = hid_cur->next;
 	} while(hid_cur != NULL);
 
-	//TODO: Give some capability to choose which Chili is opened.
-	printf("%d Chilis found.\n", count);
+	if(hid_cur == NULL)
+	{ //Device not found
+		error = -1;
+		goto exit;
+	}
 
 	pDeviceRef->exchange_context = calloc(1, sizeof(struct usb_exchange_priv));
 	priv = pDeviceRef->exchange_context;
 	priv->error_callback = callback;
 
 	//For now, just use the first compatible HID
+	len = strlen(hid_ll->path);
+	priv->hid_path = calloc(1, len+1);
+	strncpy(priv->hid_path, hid_ll->path, len);
 	priv->hid_dev = hid_open_path(hid_ll->path);
 	if(priv->hid_dev == NULL)
 	{
@@ -488,6 +511,7 @@ exit:
 	if(hid_ll) hid_free_enumeration(hid_ll);
 	if(error && pDeviceRef->exchange_context)
 	{
+		free(priv->hid_path);
 		free(pDeviceRef->exchange_context);
 		pDeviceRef->exchange_context = NULL;
 	}
@@ -530,6 +554,7 @@ void usb_exchange_deinit(struct ca821x_dev *pDeviceRef)
 	pthread_mutex_destroy(&(priv->in_queue_mutex));
 	pthread_cond_destroy(&(priv->sync_cond));
 	priv->error_callback = NULL;
+	free(priv->hid_path);
 	free(priv);
 	pDeviceRef->exchange_context = NULL;
 }
