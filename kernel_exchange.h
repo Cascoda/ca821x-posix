@@ -32,6 +32,8 @@
 #ifndef KERNEL_EXCHANGE_H
 #define KERNEL_EXCHANGE_H
 
+#include "ca821x_api.h"
+
 /* Optional callback for the application layer
  * to handle any chip errors which would otherwise
  * cause a crash.
@@ -60,7 +62,7 @@ typedef int (*kernel_exchange_errorhandler)(
  * @returns 0 for success, -1 for error
  *
  */
-int kernel_exchange_init(void);
+int kernel_exchange_init(struct ca821x_dev *pDeviceRef);
 
 /**
  * Initialise the kernel exchange, using the supplied errorhandling callback to
@@ -72,14 +74,15 @@ int kernel_exchange_init(void);
  * @returns 0 for success, -1 for error
  *
  */
-int kernel_exchange_init_withhandler(kernel_exchange_errorhandler callback);
+int kernel_exchange_init_withhandler(kernel_exchange_errorhandler callback,
+                                     struct ca821x_dev *pDeviceRef);
 
 /**
  * Deinitialise the kernel exchange, so that it can be reinitialised by another
  * process, or reopened later.
  *
  */
-void kernel_exchange_deinit(void);
+void kernel_exchange_deinit(struct ca821x_dev *pDeviceRef);
 
 /**
  * Send a hard reset to the ca8210. This should not be necessary, but is provided

@@ -44,7 +44,6 @@
 #include <sys/select.h>
 #include <sys/ioctl.h>
 
-#include "ca821x_api.h"
 #include "kernel_exchange.h"
 
 /******************************************************************************/
@@ -62,7 +61,7 @@ static int ca8210_test_int_exchange(
 	const uint8_t *buf,
 	size_t len,
 	uint8_t *response,
-	void *pDeviceRef
+	struct ca821x_dev *pDeviceRef
 );
 
 /******************************************************************************/
@@ -168,8 +167,7 @@ static void *ca8210_test_int_read_worker(void *arg)
 		}
 
 		if (rx_len > 0) {
-			ca821x_downstream_dispatch(rx_buf, rx_len, &DriverFileDescriptor,
-			                           s_pDeviceRef);
+			ca821x_downstream_dispatch(rx_buf, rx_len, s_pDeviceRef);
 		}
 		pthread_mutex_lock(&flag_mutex);
 	}
