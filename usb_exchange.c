@@ -442,8 +442,10 @@ int usb_exchange_init_withhandler(usb_exchange_errorhandler callback,
                                   struct ca821x_dev *pDeviceRef)
 {
 	struct hid_device_info *hid_ll = NULL, *hid_cur = NULL;
+	hid_device *dev = NULL;
 	struct usb_exchange_priv *priv = NULL;
 	int error = 0;
+	size_t len = 0;
 
 	if(!s_initialised)
 	{
@@ -460,40 +462,39 @@ int usb_exchange_init_withhandler(usb_exchange_errorhandler callback,
 		goto exit;
 	}
 
-	//Find all compatible USB HIDs
-	hid_ll = hid_enumerate(USB_VID, USB_PID);
-	if(!hid_ll)
-	{
-		error = -1;
-		goto exit;
-	}
-
 	//Iterate through compatible HIDs until one is found that hasn't already
 	//been opened.
-	hid_cur = get_next_hid(hid_ll);
-	while(hid_cur != NULL)
+	hid_ll = hid_enumerate(USB_VID, USB_PID);
+	hid_cur = hid_ll;
+	while(dev == NULL && hid_cur != NULL)
 	{
-		size_t len = 0;
-		hid_device *dev = hid_open_path(hid_cur->path);
+		hid_cur = get_next_hid(hid_cur);
+		dev = hid_open_path(hid_cur->path);
 		if(dev == NULL)
 		{
-			hid_cur = get_next_hid(hid_cur);
-			continue;
+			hid_cur = hid_cur->next;
 		}
-		pDeviceRef->exchange_context = calloc(1, sizeof(struct usb_exchange_priv));
-		priv = pDeviceRef->exchange_context;
-		priv->error_callback = callback;
-
-		len = strlen(hid_cur->path);
-		priv->hid_path = calloc(1, len+1);
-		strncpy(priv->hid_path, hid_cur->path, len);
-		priv->hid_dev = dev;
 	}
 	if(hid_cur == NULL)
 	{ //Device not found
 		error = -1;
 		goto exit;
 	}
+
+	pDeviceRef->exchange_context = calloc(1, sizeof(struct usb_exchange_priv));
+	priv = pDeviceRef->exchange_context;
+	priv->error_callback = callback;
+
+	len = strlen(hid_cur->path);
+	priv->hid_path = calloc(1, len+1);
+	strncpy(priv->hid_path, hid_cur->path, len);
+	priv->hid_dev = dev;
+
+	pthread_mutex_init(&(priv->sync_mutex), NULL);
+	pthread_mutex_init(&(priv->in_queue_mutex), NULL);
+	pthread_cond_init(&(priv->sync_cond), NULL);
+
+	pDeviceRef->ca821x_api_downstream = ca8210_test_int_exchange;
 
 	//Add the new device to the device list for io
 	s_devcount++;
@@ -506,13 +507,6 @@ int usb_exchange_init_withhandler(usb_exchange_errorhandler callback,
 			break;
 		}
 	}
-
-	//Set up the pthread primitives for the device
-	pthread_mutex_init(&(priv->sync_mutex), NULL);
-	pthread_mutex_init(&(priv->in_queue_mutex), NULL);
-	pthread_cond_init(&(priv->sync_cond), NULL);
-
-	pDeviceRef->ca821x_api_downstream = ca8210_test_int_exchange;
 
 exit:
 	if(hid_ll) hid_free_enumeration(hid_ll);
@@ -732,7 +726,6 @@ static size_t wait_on_queue(struct buffer_queue ** head_buffer_queue,
 			}
 		} while(in_queue == ((size_t)-1));
 		pthread_mutex_unlock(buf_queue_mutex);
-
 	}
 	return in_queue;
 }
