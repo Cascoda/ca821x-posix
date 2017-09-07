@@ -319,7 +319,7 @@ static int ca8210_test_int_exchange(
 	const uint8_t *buf,
 	size_t len,
 	uint8_t *response,
-	void *pDeviceRef
+	struct ca821x_dev *pDeviceRef
 )
 {
 	int Rx_Length, error, i;
