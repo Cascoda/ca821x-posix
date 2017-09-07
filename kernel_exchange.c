@@ -79,6 +79,8 @@ static uint8_t worker_flag = 0;
 static uint8_t initialised = 0;
 static fd_set rx_block_fd_set;
 
+static struct ca821x_dev *s_pDeviceRef = NULL;
+
 #ifdef USE_LOGFILE
 static FILE * LogFileDescriptor;
 static pthread_mutex_t file_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -166,7 +168,8 @@ static void *ca8210_test_int_read_worker(void *arg)
 		}
 
 		if (rx_len > 0) {
-			ca821x_downstream_dispatch(rx_buf, rx_len, &DriverFileDescriptor);
+			ca821x_downstream_dispatch(rx_buf, rx_len, &DriverFileDescriptor,
+			                           s_pDeviceRef);
 		}
 		pthread_mutex_lock(&flag_mutex);
 	}
@@ -174,15 +177,17 @@ static void *ca8210_test_int_read_worker(void *arg)
 	return NULL;
 }
 
-int kernel_exchange_init(void){
-	return kernel_exchange_init_withhandler(NULL);
+int kernel_exchange_init(struct ca821x_dev *pDeviceRef){
+	return kernel_exchange_init_withhandler(NULL, pDeviceRef);
 }
 
-int kernel_exchange_init_withhandler(kernel_exchange_errorhandler callback)
+int kernel_exchange_init_withhandler(kernel_exchange_errorhandler callback,
+                                     struct ca821x_dev *pDeviceRef)
 {
 	int ret;
 
-	if(initialised) return 1;
+	if(pDeviceRef->exchange_context) return 1;
+	if(initialised) return -1; //Initialised but not for this pDeviceRef
 
 	errorcallback = callback;
 	
@@ -198,7 +203,7 @@ int kernel_exchange_init_withhandler(kernel_exchange_errorhandler callback)
 		return -1;
 	}
 
-	ca821x_api_downstream = ca8210_test_int_exchange;
+	pDeviceRef->ca821x_api_downstream = ca8210_test_int_exchange;
 
 	//Empty the receive buffer for clean start
 	pthread_mutex_lock(&rx_mutex);
@@ -217,11 +222,16 @@ int kernel_exchange_init_withhandler(kernel_exchange_errorhandler callback)
 
 	ret = pthread_create(&rx_thread, NULL, ca8210_test_int_read_worker, NULL);
 
-	if(ret == 0) initialised = 1;
+	if(ret == 0)
+	{
+		initialised = 1;
+		pDeviceRef->exchange_context = (void *) 1;
+		s_pDeviceRef = pDeviceRef;
+	}
 	return ret;
 }
 
-void kernel_exchange_deinit(void){
+void kernel_exchange_deinit(struct ca821x_dev *pDeviceRef){
 	int ret;
 
 	//Cause the worker thread to terminate
@@ -245,6 +255,8 @@ void kernel_exchange_deinit(void){
 		ret = close(DriverFileDescriptor);
 	} while(ret < 0 && errno == EINTR);
 	initialised = 0;
+	pDeviceRef->exchange_context = NULL;
+	s_pDeviceRef = NULL;
 
 	//unlock all mutexes
 #ifdef USE_LOGFILE
