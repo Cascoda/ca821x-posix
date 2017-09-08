@@ -1,3 +1,6 @@
+[submodule "hidapi"]
+	path = hidapi
+	url = https://github.com/signal11/hidapi.git
 [submodule "ca821x-api"]
 	path = ca821x-api
 	url = https://github.com/Cascoda/ca821x-api.git
