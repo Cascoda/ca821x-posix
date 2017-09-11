@@ -72,7 +72,7 @@ struct usb_exchange_priv
 	struct buffer_queue *in_buffer_queue;
 };
 
-struct ca821x_dev *s_devs[USB_MAX_DEVICES] = { 0 };
+static struct ca821x_dev *s_devs[USB_MAX_DEVICES] = { 0 };
 
 static int s_initialised, s_worker_run_flag, s_devcount = 0;
 
@@ -487,7 +487,7 @@ int usb_exchange_init(struct ca821x_dev *pDeviceRef)
 	return usb_exchange_init_withhandler(NULL, pDeviceRef);
 }
 
-int is_hidpath_in_use(char *path)
+static int is_hidpath_in_use(char *path)
 {
 	int rval;
 	for (int i = 0; i < USB_MAX_DEVICES; i++)
@@ -500,7 +500,7 @@ int is_hidpath_in_use(char *path)
 	return 0;
 }
 
-struct hid_device_info *get_next_hid(struct hid_device_info *hid_cur)
+static struct hid_device_info *get_next_hid(struct hid_device_info *hid_cur)
 {
 	do
 	{
