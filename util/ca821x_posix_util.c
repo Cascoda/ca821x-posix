@@ -35,22 +35,15 @@ int ca821x_util_init(struct ca821x_dev *pDeviceRef,
                      ca821x_errorhandler errorHandler)
 {
 	int error = 0;
-	enum ca821x_exchange_type ex_type;
-	struct ca821x_exchange_base *base;
 	error = ca821x_api_init(pDeviceRef);
 	if(error) goto exit;
 
 	error = kernel_exchange_init_withhandler(errorHandler, pDeviceRef);
-	ex_type = ca821x_exchange_kernel;
 	if(error)
 	{
 		error = usb_exchange_init_withhandler(errorHandler, pDeviceRef);
-		ex_type = ca821x_exchange_usb;
 	}
-	if(error) goto exit;
 
-	base = pDeviceRef->exchange_context;
-	base->exchange_type = ex_type;
 exit:
 	return error;
 }
