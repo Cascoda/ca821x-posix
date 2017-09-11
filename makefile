@@ -24,7 +24,7 @@ $(TARGET): $(OBJECTS)
 	$(AR) rcs $(TARGET) *.o
 
 clean:
-	-rm -f $(SOURCEDIR)*.o
+	-rm -f $(addsuffix *.o,$(SOURCEDIR))
 	-rm -f $(TARGET)
 
 subdirs: $(SUBDIRS)
