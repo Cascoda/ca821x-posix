@@ -33,6 +33,7 @@
 #define USB_EXCHANGE_H
 
 #include "ca821x_api.h"
+#include "../ca821x-types.h"
 #define TEST_ENABLE 1
 
 enum usb_exchange_errors {
@@ -40,14 +41,6 @@ enum usb_exchange_errors {
 	usb_exchange_err_ca821x,	//ca821x error - can probably trigger a hard reset and recover
 	usb_exchange_err_generic
 };
-
-/* Optional callback for the application layer
- * to handle any errors which would otherwise
- * cause a crash.
- */
-typedef int (*usb_exchange_errorhandler)(
-	int error_number
-);
 
 /* Optional callback for the application layer
  * to handle any non-ca821x communication with
@@ -92,7 +85,7 @@ int usb_exchange_init(struct ca821x_dev *pDeviceRef);
  * @returns 0 for success, -1 for error
  *
  */
-int usb_exchange_init_withhandler(usb_exchange_errorhandler callback,
+int usb_exchange_init_withhandler(ca821x_errorhandler callback,
                                   struct ca821x_dev *pDeviceRef);
 
 /**

@@ -33,14 +33,7 @@
 #define KERNEL_EXCHANGE_H
 
 #include "ca821x_api.h"
-
-/* Optional callback for the application layer
- * to handle any chip errors which would otherwise
- * cause a crash.
- */
-typedef int (*kernel_exchange_errorhandler)(
-	int error_number
-);
+#include "../ca821x-types.h"
 
 /*
  * Must call ONE of the following functions in order to initialize driver communications
@@ -74,7 +67,7 @@ int kernel_exchange_init(struct ca821x_dev *pDeviceRef);
  * @returns 0 for success, -1 for error
  *
  */
-int kernel_exchange_init_withhandler(kernel_exchange_errorhandler callback,
+int kernel_exchange_init_withhandler(ca821x_errorhandler callback,
                                      struct ca821x_dev *pDeviceRef);
 
 /**

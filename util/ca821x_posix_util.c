@@ -31,19 +31,63 @@
 
 #include "../ca821x-posix.h"
 
-int ca821x_initialise_and_open(struct ca821x_dev *pDeviceRef,
-                               ca821x_errorhandler errorHandler)
+int ca821x_util_init(struct ca821x_dev *pDeviceRef,
+                     ca821x_errorhandler errorHandler)
 {
 	int error = 0;
+	enum ca821x_exchange_type ex_type;
+	struct ca821x_exchange_base *base;
 	error = ca821x_api_init(pDeviceRef);
 	if(error) goto exit;
 
 	error = kernel_exchange_init_withhandler(errorHandler, pDeviceRef);
+	ex_type = ca821x_exchange_kernel;
 	if(error)
 	{
 		error = usb_exchange_init_withhandler(errorHandler, pDeviceRef);
+		ex_type = ca821x_exchange_usb;
+	}
+	if(error) goto exit;
+
+	base = pDeviceRef->exchange_context;
+	base->exchange_type = ex_type;
+exit:
+	return error;
+}
+
+void ca821x_util_deinit(struct ca821x_dev *pDeviceRef)
+{
+	struct ca821x_exchange_base *base = pDeviceRef->exchange_context;
+
+	if(base == NULL) return;
+
+	switch (base->exchange_type)
+	{
+	case ca821x_exchange_kernel:
+		kernel_exchange_deinit(pDeviceRef);
+		break;
+	case ca821x_exchange_usb:
+		usb_exchange_deinit(pDeviceRef);
+		break;
+	}
+}
+
+int ca821x_util_reset(struct ca821x_dev *pDeviceRef)
+{
+	struct ca821x_exchange_base *base = pDeviceRef->exchange_context;
+	int error = -1;
+
+	if(base == NULL) return -1;
+
+	switch (base->exchange_type)
+	{
+	case ca821x_exchange_kernel:
+		error = kernel_exchange_reset(1, pDeviceRef);
+		break;
+	case ca821x_exchange_usb:
+		error = usb_exchange_reset(1, pDeviceRef);
+		break;
 	}
 
-exit:
 	return error;
 }

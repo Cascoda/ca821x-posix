@@ -85,7 +85,7 @@ static FILE * LogFileDescriptor;
 static pthread_mutex_t file_mutex = PTHREAD_MUTEX_INITIALIZER;
 #endif
 
-static kernel_exchange_errorhandler errorcallback;
+static ca821x_errorhandler errorcallback;
 
 /******************************************************************************/
 
@@ -179,7 +179,7 @@ int kernel_exchange_init(struct ca821x_dev *pDeviceRef){
 	return kernel_exchange_init_withhandler(NULL, pDeviceRef);
 }
 
-int kernel_exchange_init_withhandler(kernel_exchange_errorhandler callback,
+int kernel_exchange_init_withhandler(ca821x_errorhandler callback,
                                      struct ca821x_dev *pDeviceRef)
 {
 	int ret;
@@ -222,8 +222,11 @@ int kernel_exchange_init_withhandler(kernel_exchange_errorhandler callback,
 
 	if(ret == 0)
 	{
+		struct ca821x_exchange_base *base;
 		initialised = 1;
-		pDeviceRef->exchange_context = (void *) 1;
+		pDeviceRef->exchange_context = malloc(sizeof(struct ca821x_exchange_base));
+		base = pDeviceRef->exchange_context;
+		base->exchange_type = ca821x_exchange_kernel;
 		s_pDeviceRef = pDeviceRef;
 	}
 	return ret;
@@ -253,6 +256,7 @@ void kernel_exchange_deinit(struct ca821x_dev *pDeviceRef){
 		ret = close(DriverFileDescriptor);
 	} while(ret < 0 && errno == EINTR);
 	initialised = 0;
+	free(pDeviceRef->exchange_context);
 	pDeviceRef->exchange_context = NULL;
 	s_pDeviceRef = NULL;
 

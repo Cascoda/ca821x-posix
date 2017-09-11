@@ -59,9 +59,10 @@
 
 struct usb_exchange_priv
 {
+	struct ca821x_exchange_base base;
 	hid_device *hid_dev;
 	char *hid_path;
-	usb_exchange_errorhandler error_callback;
+	ca821x_errorhandler error_callback;
 	usb_exchange_user_callback user_callback;
 
 	//Synchronous queue
@@ -510,7 +511,7 @@ struct hid_device_info *get_next_hid(struct hid_device_info *hid_cur)
 	return hid_cur;
 }
 
-int usb_exchange_init_withhandler(usb_exchange_errorhandler callback,
+int usb_exchange_init_withhandler(ca821x_errorhandler callback,
                                   struct ca821x_dev *pDeviceRef)
 {
 	struct hid_device_info *hid_ll = NULL, *hid_cur = NULL;
@@ -555,6 +556,7 @@ int usb_exchange_init_withhandler(usb_exchange_errorhandler callback,
 
 	pDeviceRef->exchange_context = calloc(1, sizeof(struct usb_exchange_priv));
 	priv = pDeviceRef->exchange_context;
+	priv->base.exchange_type = ca821x_exchange_usb;
 	priv->error_callback = callback;
 
 	len = strlen(hid_cur->path);
