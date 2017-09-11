@@ -29,7 +29,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "ca821x-posix.h"
+#include "../ca821x-posix.h"
 
 int ca821x_initialise_and_open(struct ca821x_dev *pDeviceRef,
                                ca821x_errorhandler errorHandler)

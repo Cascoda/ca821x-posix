@@ -1,7 +1,7 @@
 TARGET = libca821x.a
 LIBS = -lm
-CFLAGS = -g -Wall -pthread -std=c99
-INCLUDEDIR = ./ ca821x-api/include/
+CFLAGS = -g -Wall -pthread -std=c99 -D_POSIX_C_SOURCE=199309L
+INCLUDEDIR = ca821x-api/include/
 SOURCEDIRS = kernel-exchange/ usb-exchange/ util/
 SUBDIRS = ca821x-api
 
@@ -10,7 +10,7 @@ SUBDIRS = ca821x-api
 default: $(TARGET)
 all: default
 
-OBJECTS = $(patsubst %.c, %.o, $(wildcard $(SOURCEDIRS)*.c))
+OBJECTS = $(patsubst %.c, %.o, $(wildcard $(addsuffix *.c,$(SOURCEDIRS))))
 HEADERS = $(wildcard $(INCLUDEDIR),*.h)
 
 %.o: %.c $(HEADERS) subdirs
