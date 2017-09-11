@@ -57,7 +57,8 @@
 #define FRAG_LAST_MASK (1 << 7)
 #define FRAG_FIRST_MASK (1 << 6)
 
-struct usb_exchange_priv {
+struct usb_exchange_priv
+{
 	hid_device *hid_dev;
 	char *hid_path;
 	usb_exchange_errorhandler error_callback;
@@ -70,7 +71,7 @@ struct usb_exchange_priv {
 	struct buffer_queue *in_buffer_queue;
 };
 
-struct ca821x_dev *s_devs[USB_MAX_DEVICES] = {0};
+struct ca821x_dev *s_devs[USB_MAX_DEVICES] = { 0 };
 
 static int s_initialised, s_worker_run_flag, s_devcount = 0;
 
@@ -88,7 +89,8 @@ static pthread_mutex_t flag_mutex = PTHREAD_MUTEX_INITIALIZER,
 static pthread_cond_t dd_cond = PTHREAD_COND_INITIALIZER,
                       devs_cond = PTHREAD_COND_INITIALIZER;
 
-struct buffer_queue{
+struct buffer_queue
+{
 	size_t len;
 	uint8_t * buf;
 	struct ca821x_dev *pDeviceRef;
@@ -134,13 +136,14 @@ static int ca8210_test_int_exchange(const uint8_t *buf,
                                     struct ca821x_dev *pDeviceRef);
 
 //returns 1 for non-final fragment, 0 for final
-static int get_next_frag(uint8_t *buf_in, uint8_t len_in, uint8_t *frag_out, uint8_t *offset)
+static int get_next_frag(uint8_t *buf_in, uint8_t len_in, uint8_t *frag_out,
+                         uint8_t *offset)
 {
 	int end_offset = *offset + MAX_FRAG_SIZE - 1;
 	uint8_t is_first = 0, is_last = 0, frag_len = 0;
 	is_first = (*offset == 0);
 
-	if(end_offset >= len_in)
+	if (end_offset >= len_in)
 	{
 		end_offset = len_in;
 		is_last = 1;
@@ -158,12 +161,13 @@ static int get_next_frag(uint8_t *buf_in, uint8_t len_in, uint8_t *frag_out, uin
 
 	*offset = end_offset;
 
-	if(is_last) *offset = 0;
+	if (is_last) *offset = 0;
 	return !is_last;
 }
 
 //returns 1 for non-final fragment, 0 for final
-static int assemble_frags(uint8_t *frag_in, uint8_t *buf_out, uint8_t *len_out, uint8_t *offset)
+static int assemble_frags(uint8_t *frag_in, uint8_t *buf_out, uint8_t *len_out,
+                          uint8_t *offset)
 {
 	uint8_t is_first = 0, is_last = 0, frag_len = 0;
 	frag_len = frag_in[0] & FRAG_LEN_MASK;
@@ -177,7 +181,7 @@ static int assemble_frags(uint8_t *frag_in, uint8_t *buf_out, uint8_t *len_out, 
 	*offset += frag_len;
 	*len_out = *offset;
 
-	if(is_last) *offset = 0;
+	if (is_last) *offset = 0;
 	return !is_last;
 }
 
@@ -200,16 +204,17 @@ void test_frag_loopback()
 	                      0x7c, 0xf6, 0x51, 0x77, 0x7f, 0x28, 0x44, 0xda, 0x48,
 	                      0x4f, 0x2e, 0x57, 0xc3, 0x81, 0x8e, 0x76, 0x22, 0x3d,
 	                      0x40, 0x5a, 0x69, 0x62, 0x91, 0x10, 0x87, 0x1d, 0x11,
-	                      0x11, 0x11, 0xca, 0x5c, 0x0d, 0xaa, 0x11, 0x11       };
+	                      0x11, 0x11, 0xca, 0x5c, 0x0d, 0xaa, 0x11, 0x11 };
 
-	int data_in_size = sizeof(data_in)/sizeof(data_in[0]);
+	int data_in_size = sizeof(data_in) / sizeof(data_in[0]);
 	uint8_t data_out[MAX_BUF_SIZE];
-	uint8_t frag_buf[MAX_FRAG_SIZE+1];
+	uint8_t frag_buf[MAX_FRAG_SIZE + 1];
 	uint8_t len, rval, offset1 = 0, offset2 = 0;
 
-	do{
+	do
+	{
 		rval = get_next_frag(data_in, data_in_size, frag_buf, &offset1);
-	} while(assemble_frags(frag_buf+1, data_out, &len, &offset2));
+	} while (assemble_frags(frag_buf + 1, data_out, &len, &offset2));
 
 	assert(!rval); //make sure both assembly and deconstruction thought this was last frag
 	assert(len == data_in_size);
@@ -229,19 +234,22 @@ static void *ca821x_downstream_dispatch_worker(void *arg)
 	int rval;
 
 	pthread_mutex_lock(&flag_mutex);
-	while(s_worker_run_flag)
+	while (s_worker_run_flag)
 	{
 		pthread_mutex_unlock(&flag_mutex);
 
-		wait_on_queue(&downstream_dispatch_queue, &downstream_queue_mutex, &dd_cond);
+		wait_on_queue(&downstream_dispatch_queue, &downstream_queue_mutex,
+		              &dd_cond);
 
-		len = pop_from_queue(&downstream_dispatch_queue, &downstream_queue_mutex,
-		                     buffer, MAX_BUF_SIZE, &pDeviceRef);
+		len = pop_from_queue(&downstream_dispatch_queue,
+		                     &downstream_queue_mutex,
+		                     buffer,
+		                     MAX_BUF_SIZE, &pDeviceRef);
 		priv = pDeviceRef->exchange_context;
 
-		if(len > 0) rval = ca821x_downstream_dispatch(buffer, len, pDeviceRef);
+		if (len > 0) rval = ca821x_downstream_dispatch(buffer, len, pDeviceRef);
 
-		if(rval < 0 && priv->user_callback)
+		if (rval < 0 && priv->user_callback)
 		{
 			priv->user_callback(buffer, len, pDeviceRef);
 		}
@@ -263,9 +271,10 @@ static struct ca821x_dev *get_next_io_dev()
 	pthread_mutex_lock(&fmut);
 	pthread_mutex_lock(&devs_mutex);
 	ni = i;
-	do{
+	do
+	{
 		ni = (ni + 1) % USB_MAX_DEVICES;
-	} while(s_devs[ni] == NULL && ni != i);
+	} while (s_devs[ni] == NULL && ni != i);
 	i = ni;
 	pDeviceRef = s_devs[i];
 	pthread_mutex_unlock(&devs_mutex);
@@ -279,17 +288,17 @@ static void *ca8210_test_int_worker(void *arg)
 	struct ca821x_dev *pDeviceRef;
 	struct usb_exchange_priv *priv;
 	uint8_t buffer[MAX_BUF_SIZE];
-	uint8_t frag_buf[MAX_FRAG_SIZE+1]; //+1 for report ID
+	uint8_t frag_buf[MAX_FRAG_SIZE + 1]; //+1 for report ID
 	uint8_t delay, len, offset;
 	int rval, error, devi = 0;
 
 	pthread_mutex_lock(&flag_mutex);
-	while(s_worker_run_flag)
+	while (s_worker_run_flag)
 	{
 		pthread_mutex_unlock(&flag_mutex);
 
 		pthread_mutex_lock(&devs_mutex);
-		if(s_devcount == 0)
+		if (s_devcount == 0)
 		{
 			pthread_cond_wait(&devs_cond, &devs_mutex);
 			pthread_mutex_unlock(&devs_mutex);
@@ -297,15 +306,15 @@ static void *ca8210_test_int_worker(void *arg)
 		}
 		else
 		{
-			devi = (devi+1) % s_devcount;
+			devi = (devi + 1) % s_devcount;
 		}
 		pthread_mutex_unlock(&devs_mutex);
 
-		if(devi != 0)
+		if (devi != 0)
 		{ //Don't pause for every device because this will cause slowdown
 			delay = 0;
 		}
-		else if(peek_queue(out_buffer_queue, &out_queue_mutex))
+		else if (peek_queue(out_buffer_queue, &out_queue_mutex))
 		{ //Use a nonblocking read if we are waiting to send messages
 			delay = 0;
 		}
@@ -320,19 +329,23 @@ static void *ca8210_test_int_worker(void *arg)
 
 		//Read from the device if possible
 		offset = 0;
-		do{
-			error = dhid_read_timeout(priv->hid_dev, frag_buf, MAX_FRAG_SIZE, delay);
-			if(error <= 0) break;
-			delay = -1;
-		} while(assemble_frags(frag_buf, buffer, &len, &offset));
-
-		if(error > 0)
+		do
 		{
-			if(buffer[0] & SPI_SYN)
+			error = dhid_read_timeout(priv->hid_dev, frag_buf, MAX_FRAG_SIZE,
+			                          delay);
+			if (error <= 0) break;
+			delay = -1;
+		} while (assemble_frags(frag_buf, buffer, &len, &offset));
+
+		if (error > 0)
+		{
+			if (buffer[0] & SPI_SYN)
 			{
 				//Add to queue for synchronous processing
-				add_to_waiting_queue(&(priv->in_buffer_queue), &(priv->in_queue_mutex),
-				                     &(priv->sync_cond), buffer, len, pDeviceRef);
+				add_to_waiting_queue(&(priv->in_buffer_queue),
+				                     &(priv->in_queue_mutex),
+				                     &(priv->sync_cond),
+				                     buffer, len, pDeviceRef);
 			}
 			else
 			{
@@ -345,21 +358,23 @@ static void *ca8210_test_int_worker(void *arg)
 
 		//Send any queued messages
 		len = pop_from_queue(&out_buffer_queue, &out_queue_mutex,
-		                      buffer, MAX_BUF_SIZE, &pDeviceRef);
+		                     buffer,
+		                     MAX_BUF_SIZE, &pDeviceRef);
 
-		if(len > 0)
+		if (len > 0)
 		{
 			offset = 0;
 			priv = pDeviceRef->exchange_context;
-			do{
+			do
+			{
 				rval = get_next_frag(buffer, len, frag_buf, &offset);
 				error = dhid_write(priv->hid_dev, frag_buf, MAX_FRAG_SIZE + 1);
-			} while(rval);
+			} while (rval);
 		}
 
-		if(error < 0)
+		if (error < 0)
 		{
-			if(priv->error_callback)
+			if (priv->error_callback)
 			{
 				priv->error_callback(usb_exchange_err_usb);
 			}
@@ -369,7 +384,7 @@ static void *ca8210_test_int_worker(void *arg)
 			}
 		}
 
-	end_loop:
+		end_loop:
 		pthread_mutex_lock(&flag_mutex);
 	}
 
@@ -383,31 +398,31 @@ static int load_dlibs()
 
 	//Load the dynamic library
 	s_hid_lib_handle = dlopen("libhidapi-libusb.so", RTLD_NOW);
-	if(s_hid_lib_handle == NULL)
+	if (s_hid_lib_handle == NULL)
 	{
 		s_hid_lib_handle = dlopen("libhidapi-hidraw.so", RTLD_NOW);
 	}
 
-	if(s_hid_lib_handle == NULL)
+	if (s_hid_lib_handle == NULL)
 	{
 		error = -1;
 		goto exit;
 	}
 
-	dhid_enumerate        = dlsym(s_hid_lib_handle, "hid_enumerate");
-	dhid_open_path        = dlsym(s_hid_lib_handle, "hid_open_path");
+	dhid_enumerate = dlsym(s_hid_lib_handle, "hid_enumerate");
+	dhid_open_path = dlsym(s_hid_lib_handle, "hid_open_path");
 	dhid_free_enumeration = dlsym(s_hid_lib_handle, "hid_free_enumeration");
-	dhid_read_timeout     = dlsym(s_hid_lib_handle, "hid_read_timeout");
-	dhid_write            = dlsym(s_hid_lib_handle, "hid_write");
+	dhid_read_timeout = dlsym(s_hid_lib_handle, "hid_read_timeout");
+	dhid_write = dlsym(s_hid_lib_handle, "hid_write");
 
-	if(dlerror() != NULL)
+	if (dlerror() != NULL)
 	{
 		error = -1;
 		goto exit;
 	}
 
 exit:
-	if(error && (s_hid_lib_handle != NULL))
+	if (error && (s_hid_lib_handle != NULL))
 	{
 		dlclose(s_hid_lib_handle);
 	}
@@ -423,14 +438,15 @@ static int init_statics()
 
 	s_worker_run_flag = 1;
 	rval = pthread_create(&usb_io_thread, NULL, &ca8210_test_int_worker, NULL);
-	if(rval != 0)
+	if (rval != 0)
 	{
 		s_worker_run_flag = 0;
 		error = -1;
 		goto exit;
 	}
-	rval = pthread_create(&dd_thread, NULL, &ca821x_downstream_dispatch_worker, NULL);
-	if(rval != 0)
+	rval = pthread_create(&dd_thread, NULL, &ca821x_downstream_dispatch_worker,
+	                      NULL);
+	if (rval != 0)
 	{
 		//The io thread is successfully running but dd is not
 		pthread_mutex_lock(&flag_mutex);
@@ -446,7 +462,8 @@ exit:
 	return error;
 }
 
-static int deinit_statics(){
+static int deinit_statics()
+{
 
 	s_initialised = 0;
 	pthread_mutex_lock(&flag_mutex);
@@ -455,7 +472,8 @@ static int deinit_statics(){
 
 	//Wake the downstream dispatch thread up so that it dies cleanly
 	add_to_waiting_queue(&downstream_dispatch_queue, &downstream_queue_mutex,
-					     &dd_cond, NULL, 0, NULL);
+	                     &dd_cond,
+	                     NULL, 0, NULL);
 
 	//TODO: Should probably wait for the workers to actually complete here
 
@@ -471,22 +489,23 @@ int usb_exchange_init(struct ca821x_dev *pDeviceRef)
 int is_hidpath_in_use(char *path)
 {
 	int rval;
-	for(int i = 0; i < USB_MAX_DEVICES; i++)
+	for (int i = 0; i < USB_MAX_DEVICES; i++)
 	{
-		if(!s_devs[i]) continue;
+		if (!s_devs[i]) continue;
 		struct usb_exchange_priv *cur = s_devs[i]->exchange_context;
 		rval = strcmp(path, cur->hid_path);
-		if(rval == 0) return 1;
+		if (rval == 0) return 1;
 	}
 	return 0;
 }
 
 struct hid_device_info *get_next_hid(struct hid_device_info *hid_cur)
 {
-	do{
-		if(!is_hidpath_in_use(hid_cur->path)) break;
+	do
+	{
+		if (!is_hidpath_in_use(hid_cur->path)) break;
 		hid_cur = hid_cur->next;
-	} while(hid_cur != NULL);
+	} while (hid_cur != NULL);
 
 	return hid_cur;
 }
@@ -500,16 +519,16 @@ int usb_exchange_init_withhandler(usb_exchange_errorhandler callback,
 	int error = 0;
 	size_t len = 0;
 
-	if(!s_initialised)
+	if (!s_initialised)
 	{
 		error = init_statics();
-		if(error) return error;
+		if (error) return error;
 	}
 
-	if(pDeviceRef->exchange_context) return 1;
+	if (pDeviceRef->exchange_context) return 1;
 
 	pthread_mutex_lock(&devs_mutex);
-	if(s_devcount >= USB_MAX_DEVICES)
+	if (s_devcount >= USB_MAX_DEVICES)
 	{
 		error = -1;
 		goto exit;
@@ -519,16 +538,16 @@ int usb_exchange_init_withhandler(usb_exchange_errorhandler callback,
 	//been opened.
 	hid_ll = dhid_enumerate(USB_VID, USB_PID);
 	hid_cur = hid_ll;
-	while(dev == NULL && hid_cur != NULL)
+	while (dev == NULL && hid_cur != NULL)
 	{
 		hid_cur = get_next_hid(hid_cur);
 		dev = dhid_open_path(hid_cur->path);
-		if(dev == NULL)
+		if (dev == NULL)
 		{
 			hid_cur = hid_cur->next;
 		}
 	}
-	if(hid_cur == NULL)
+	if (hid_cur == NULL)
 	{ //Device not found
 		error = -1;
 		goto exit;
@@ -539,7 +558,7 @@ int usb_exchange_init_withhandler(usb_exchange_errorhandler callback,
 	priv->error_callback = callback;
 
 	len = strlen(hid_cur->path);
-	priv->hid_path = calloc(1, len+1);
+	priv->hid_path = calloc(1, len + 1);
 	strncpy(priv->hid_path, hid_cur->path, len);
 	priv->hid_dev = dev;
 
@@ -552,9 +571,9 @@ int usb_exchange_init_withhandler(usb_exchange_errorhandler callback,
 	//Add the new device to the device list for io
 	s_devcount++;
 	pthread_cond_signal(&devs_cond);
-	for(int i = 0; i < USB_MAX_DEVICES; i++)
+	for (int i = 0; i < USB_MAX_DEVICES; i++)
 	{
-		if(s_devs[i] == NULL)
+		if (s_devs[i] == NULL)
 		{
 			s_devs[i] = pDeviceRef;
 			break;
@@ -562,8 +581,8 @@ int usb_exchange_init_withhandler(usb_exchange_errorhandler callback,
 	}
 
 exit:
-	if(hid_ll) dhid_free_enumeration(hid_ll);
-	if(error && pDeviceRef->exchange_context)
+	if (hid_ll) dhid_free_enumeration(hid_ll);
+	if (error && pDeviceRef->exchange_context)
 	{
 		free(priv->hid_path);
 		free(pDeviceRef->exchange_context);
@@ -578,13 +597,12 @@ int usb_exchange_register_user_callback(usb_exchange_user_callback callback,
 {
 	struct usb_exchange_priv *priv = pDeviceRef->exchange_context;
 
-	if(priv->user_callback) return -1;
+	if (priv->user_callback) return -1;
 
 	priv->user_callback = callback;
 
 	return 0;
 }
-
 
 void usb_exchange_deinit(struct ca821x_dev *pDeviceRef)
 {
@@ -592,11 +610,11 @@ void usb_exchange_deinit(struct ca821x_dev *pDeviceRef)
 
 	pthread_mutex_lock(&devs_mutex);
 	s_devcount--;
-	if(s_devcount == 0) deinit_statics();
+	if (s_devcount == 0) deinit_statics();
 	pthread_cond_signal(&devs_cond);
-	for(int i = 0; i < USB_MAX_DEVICES; i++)
+	for (int i = 0; i < USB_MAX_DEVICES; i++)
 	{
-		if(s_devs[i] == pDeviceRef)
+		if (s_devs[i] == pDeviceRef)
 		{
 			s_devs[i] = NULL;
 			break;
@@ -613,8 +631,8 @@ void usb_exchange_deinit(struct ca821x_dev *pDeviceRef)
 	pDeviceRef->exchange_context = NULL;
 }
 
-
-int ca8210_test_int_reset(unsigned long resettime, struct ca821x_dev *pDeviceRef)
+int ca8210_test_int_reset(unsigned long resettime,
+                          struct ca821x_dev *pDeviceRef)
 {
 	return -1;
 }
@@ -624,36 +642,38 @@ int usb_exchange_user_send(const uint8_t *buf, size_t len,
 {
 	assert(!(buf[0] & SPI_SYN));
 	assert(len < MAX_BUF_SIZE);
-	if(!s_initialised) return -1;
+	if (!s_initialised) return -1;
 	add_to_queue(&out_buffer_queue, &out_queue_mutex, buf, len, pDeviceRef);
 	return 0;
 }
 
 static int ca8210_test_int_exchange(
-	const uint8_t *buf,
-	size_t len,
-	uint8_t *response,
-	struct ca821x_dev *pDeviceRef)
+                                    const uint8_t *buf,
+                                    size_t len,
+                                    uint8_t *response,
+                                    struct ca821x_dev *pDeviceRef)
 {
 	const uint8_t isSynchronous = ((buf[0] & SPI_SYN) && response);
 	struct usb_exchange_priv *priv = pDeviceRef->exchange_context;
 	struct ca821x_dev *ref_out;
 
-	if(!s_initialised) return -1;
+	if (!s_initialised) return -1;
 	//Synchronous must execute synchronously
 	//Get sync responses from the in queue
 	//Send messages by adding them to the out queue
 
-	if(isSynchronous) pthread_mutex_lock(&(priv->sync_mutex));
+	if (isSynchronous) pthread_mutex_lock(&(priv->sync_mutex));
 
 	add_to_queue(&out_buffer_queue, &out_queue_mutex, buf, len, pDeviceRef);
 
-	if(!isSynchronous) return 0;
+	if (!isSynchronous) return 0;
 
-	wait_on_queue(&(priv->in_buffer_queue), &(priv->in_queue_mutex), &(priv->sync_cond));
+	wait_on_queue(&(priv->in_buffer_queue), &(priv->in_queue_mutex),
+	              &(priv->sync_cond));
 
 	pop_from_queue(&(priv->in_buffer_queue), &(priv->in_queue_mutex), response,
-	               sizeof(struct MAC_Message), &ref_out);
+	               sizeof(struct MAC_Message),
+	               &ref_out);
 
 	assert(ref_out == pDeviceRef);
 	pthread_mutex_unlock(&(priv->sync_mutex));
@@ -668,8 +688,8 @@ static void add_to_queue(struct buffer_queue **head_buffer_queue,
                          struct ca821x_dev *pDeviceRef)
 {
 	add_to_waiting_queue(head_buffer_queue,
-						 buf_queue_mutex,
-						 NULL, buf, len, pDeviceRef);
+	                     buf_queue_mutex,
+	                     NULL, buf, len, pDeviceRef);
 }
 
 static void add_to_waiting_queue(struct buffer_queue **head_buffer_queue,
@@ -679,10 +699,10 @@ static void add_to_waiting_queue(struct buffer_queue **head_buffer_queue,
                                  size_t len,
                                  struct ca821x_dev *pDeviceRef)
 {
-	if(pthread_mutex_lock(buf_queue_mutex) == 0)
+	if (pthread_mutex_lock(buf_queue_mutex) == 0)
 	{
 		struct buffer_queue *nextbuf = *head_buffer_queue;
-		if(nextbuf == NULL)
+		if (nextbuf == NULL)
 		{
 			//queue empty -> start new queue
 			*head_buffer_queue = malloc(sizeof(struct buffer_queue));
@@ -691,7 +711,7 @@ static void add_to_waiting_queue(struct buffer_queue **head_buffer_queue,
 		}
 		else
 		{
-			while(nextbuf->next != NULL)
+			while (nextbuf->next != NULL)
 			{
 				nextbuf = nextbuf->next;
 			}
@@ -705,7 +725,7 @@ static void add_to_waiting_queue(struct buffer_queue **head_buffer_queue,
 		nextbuf->buf = malloc(len);
 		memcpy(nextbuf->buf, buf, len);
 		nextbuf->pDeviceRef = pDeviceRef;
-		if(queue_cond) pthread_cond_broadcast(queue_cond);
+		if (queue_cond) pthread_cond_broadcast(queue_cond);
 		pthread_mutex_unlock(buf_queue_mutex);
 	}
 }
@@ -716,17 +736,17 @@ static size_t pop_from_queue(struct buffer_queue **head_buffer_queue,
                              size_t maxlen,
                              struct ca821x_dev **pDeviceRef_out)
 {
-	if(pthread_mutex_lock(buf_queue_mutex) == 0)
+	if (pthread_mutex_lock(buf_queue_mutex) == 0)
 	{
 		struct buffer_queue * current = *head_buffer_queue;
 		size_t len = 0;
 
-		if(*head_buffer_queue != NULL)
+		if (*head_buffer_queue != NULL)
 		{
 			*head_buffer_queue = current->next;
 			len = current->len;
 
-			if(len > maxlen) len = 0; //Invalid
+			if (len > maxlen) len = 0; //Invalid
 
 			memcpy(destBuf, current->buf, len);
 			*pDeviceRef_out = current->pDeviceRef;
@@ -743,13 +763,13 @@ static size_t pop_from_queue(struct buffer_queue **head_buffer_queue,
 
 //return the length of the next buffer in the queue if it exists, otherwise 0
 static size_t peek_queue(struct buffer_queue * head_buffer_queue,
-                             pthread_mutex_t *buf_queue_mutex)
+                         pthread_mutex_t *buf_queue_mutex)
 {
 	size_t in_queue = 0;
 
-	if(pthread_mutex_lock(buf_queue_mutex) == 0)
+	if (pthread_mutex_lock(buf_queue_mutex) == 0)
 	{
-		if(head_buffer_queue != NULL)
+		if (head_buffer_queue != NULL)
 		{
 			in_queue = head_buffer_queue->len;
 		}
@@ -766,10 +786,11 @@ static size_t wait_on_queue(struct buffer_queue ** head_buffer_queue,
 {
 	size_t in_queue = -1;
 
-	if(pthread_mutex_lock(buf_queue_mutex) == 0)
+	if (pthread_mutex_lock(buf_queue_mutex) == 0)
 	{
-		do{
-			if(*head_buffer_queue != NULL)
+		do
+		{
+			if (*head_buffer_queue != NULL)
 			{
 				in_queue = (*head_buffer_queue)->len;
 			}
@@ -777,7 +798,7 @@ static size_t wait_on_queue(struct buffer_queue ** head_buffer_queue,
 			{
 				pthread_cond_wait(queue_cond, buf_queue_mutex);
 			}
-		} while(in_queue == ((size_t)-1));
+		} while (in_queue == ((size_t) -1));
 		pthread_mutex_unlock(buf_queue_mutex);
 	}
 	return in_queue;
