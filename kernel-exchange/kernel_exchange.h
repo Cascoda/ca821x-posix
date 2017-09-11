@@ -93,6 +93,6 @@ void kernel_exchange_deinit(struct ca821x_dev *pDeviceRef);
  *
  *
  */
-int ca8210_test_int_reset(unsigned long resettime);
+int kernel_exchange_reset(unsigned long resettime, struct ca821x_dev *pDeviceRef);
 
 #endif

@@ -147,7 +147,7 @@ void usb_exchange_deinit(struct ca821x_dev *pDeviceRef);
  *
  *
  */
-int ca8210_test_int_reset(unsigned long resettime, struct ca821x_dev *pDeviceRef);
+int usb_exchange_reset(unsigned long resettime, struct ca821x_dev *pDeviceRef);
 
 #ifdef TEST_ENABLE
 	//Run to test fragmentation. Crashes upon fail.

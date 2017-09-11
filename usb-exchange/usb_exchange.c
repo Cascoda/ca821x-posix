@@ -631,8 +631,7 @@ void usb_exchange_deinit(struct ca821x_dev *pDeviceRef)
 	pDeviceRef->exchange_context = NULL;
 }
 
-int ca8210_test_int_reset(unsigned long resettime,
-                          struct ca821x_dev *pDeviceRef)
+int usb_exchange_reset(unsigned long resettime, struct ca821x_dev *pDeviceRef)
 {
 	return -1;
 }

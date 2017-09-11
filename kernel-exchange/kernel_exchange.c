@@ -265,7 +265,7 @@ void kernel_exchange_deinit(struct ca821x_dev *pDeviceRef){
 	pthread_mutex_unlock(&tx_mutex);
 }
 
-int ca8210_test_int_reset(unsigned long resettime)
+int kernel_exchange_reset(unsigned long resettime, struct ca821x_dev *pDeviceRef)
 {
 	return ioctl(DriverFileDescriptor, CA8210_IOCTL_HARD_RESET, resettime);
 }
