@@ -36,6 +36,7 @@
 #include <string.h>
 #include <assert.h>
 #include <unistd.h>
+#include <dlfcn.h>
 
 #include "hidapi/hidapi/hidapi.h"
 #include "usb_exchange.h"
@@ -71,7 +72,15 @@ struct usb_exchange_priv {
 
 struct ca821x_dev *s_devs[USB_MAX_DEVICES] = {0};
 
-int s_initialised, s_worker_run_flag, s_devcount = 0;
+static int s_initialised, s_worker_run_flag, s_devcount = 0;
+
+//Dynamic hid-api library
+static void *s_hid_lib_handle = NULL;
+static struct hid_device_info *(*dhid_enumerate)(unsigned short, unsigned short);
+static hid_device *(*dhid_open_path)(const char *);
+static void (*dhid_free_enumeration)(struct hid_device_info *);
+static int (*dhid_read_timeout)(hid_device *, unsigned char *, size_t, int);
+static int (*dhid_write)(hid_device *, const unsigned char *, size_t);
 
 static pthread_t usb_io_thread, dd_thread;
 static pthread_mutex_t flag_mutex = PTHREAD_MUTEX_INITIALIZER,
@@ -312,7 +321,7 @@ static void *ca8210_test_int_worker(void *arg)
 		//Read from the device if possible
 		offset = 0;
 		do{
-			error = hid_read_timeout(priv->hid_dev, frag_buf, MAX_FRAG_SIZE, delay);
+			error = dhid_read_timeout(priv->hid_dev, frag_buf, MAX_FRAG_SIZE, delay);
 			if(error <= 0) break;
 			delay = -1;
 		} while(assemble_frags(frag_buf, buffer, &len, &offset));
@@ -344,7 +353,7 @@ static void *ca8210_test_int_worker(void *arg)
 			priv = pDeviceRef->exchange_context;
 			do{
 				rval = get_next_frag(buffer, len, frag_buf, &offset);
-				error = hid_write(priv->hid_dev, frag_buf, MAX_FRAG_SIZE + 1);
+				error = dhid_write(priv->hid_dev, frag_buf, MAX_FRAG_SIZE + 1);
 			} while(rval);
 		}
 
@@ -368,8 +377,50 @@ static void *ca8210_test_int_worker(void *arg)
 	return 0;
 }
 
-static int init_statics(){
+static int load_dlibs()
+{
+	int error = 0;
+
+	//Load the dynamic library
+	s_hid_lib_handle = dlopen("libhidapi-libusb.so", RTLD_NOW);
+	if(s_hid_lib_handle == NULL)
+	{
+		s_hid_lib_handle = dlopen("libhidapi-hidraw.so", RTLD_NOW);
+	}
+
+	if(s_hid_lib_handle == NULL)
+	{
+		error = -1;
+		goto exit;
+	}
+
+	dhid_enumerate        = dlsym(s_hid_lib_handle, "hid_enumerate");
+	dhid_open_path        = dlsym(s_hid_lib_handle, "hid_open_path");
+	dhid_free_enumeration = dlsym(s_hid_lib_handle, "hid_free_enumeration");
+	dhid_read_timeout     = dlsym(s_hid_lib_handle, "hid_read_timeout");
+	dhid_write            = dlsym(s_hid_lib_handle, "hid_write");
+
+	if(dlerror() != NULL)
+	{
+		error = -1;
+		goto exit;
+	}
+
+exit:
+	if(error && (s_hid_lib_handle != NULL))
+	{
+		dlclose(s_hid_lib_handle);
+	}
+	return error;
+}
+
+static int init_statics()
+{
 	int rval, error = 0;
+
+	error = load_dlibs();
+	goto exit;
+
 	s_worker_run_flag = 1;
 	rval = pthread_create(&usb_io_thread, NULL, &ca8210_test_int_worker, NULL);
 	if(rval != 0)
@@ -407,6 +458,8 @@ static int deinit_statics(){
 					     &dd_cond, NULL, 0, NULL);
 
 	//TODO: Should probably wait for the workers to actually complete here
+
+	dlclose(s_hid_lib_handle);
 	return 0;
 }
 
@@ -464,12 +517,12 @@ int usb_exchange_init_withhandler(usb_exchange_errorhandler callback,
 
 	//Iterate through compatible HIDs until one is found that hasn't already
 	//been opened.
-	hid_ll = hid_enumerate(USB_VID, USB_PID);
+	hid_ll = dhid_enumerate(USB_VID, USB_PID);
 	hid_cur = hid_ll;
 	while(dev == NULL && hid_cur != NULL)
 	{
 		hid_cur = get_next_hid(hid_cur);
-		dev = hid_open_path(hid_cur->path);
+		dev = dhid_open_path(hid_cur->path);
 		if(dev == NULL)
 		{
 			hid_cur = hid_cur->next;
@@ -509,7 +562,7 @@ int usb_exchange_init_withhandler(usb_exchange_errorhandler callback,
 	}
 
 exit:
-	if(hid_ll) hid_free_enumeration(hid_ll);
+	if(hid_ll) dhid_free_enumeration(hid_ll);
 	if(error && pDeviceRef->exchange_context)
 	{
 		free(priv->hid_path);
