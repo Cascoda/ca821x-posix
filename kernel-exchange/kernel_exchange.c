@@ -196,8 +196,6 @@ int kernel_exchange_init_withhandler(ca821x_errorhandler callback,
 	DriverFileDescriptor = open(DriverFilePath, O_RDWR | O_NONBLOCK);
 
 	if (DriverFileDescriptor == -1) {
-		fprintf(stderr, "Couldn't open driver node, errno = %d\n",
-			errno);
 		return -1;
 	}
 

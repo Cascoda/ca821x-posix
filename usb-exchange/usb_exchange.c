@@ -385,7 +385,7 @@ static void *ca8210_test_int_worker(void *arg)
 			}
 		}
 
-		end_loop:
+	end_loop:
 		pthread_mutex_lock(&flag_mutex);
 	}
 
@@ -435,7 +435,7 @@ static int init_statics()
 	int rval, error = 0;
 
 	error = load_dlibs();
-	goto exit;
+	if(error) goto exit;
 
 	s_worker_run_flag = 1;
 	rval = pthread_create(&usb_io_thread, NULL, &ca8210_test_int_worker, NULL);
