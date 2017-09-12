@@ -22,6 +22,7 @@ struct inst_priv
 	pthread_t mWorker;
 	uint8_t confirm_done;
 	uint16_t mAddress;
+	uint8_t lastHandle;
 
 	unsigned int mTx, mRx, mErr;
 };
@@ -67,6 +68,7 @@ static int handleDataConfirm(struct MCPS_DATA_confirm_pset *params, struct ca821
 	}
 
 	pthread_mutex_lock(confirm_mutex);
+	assert(params->MsduHandle == priv->lastHandle);
 	priv->confirm_done = 1;
 	pthread_cond_broadcast(confirm_cond);
 	pthread_mutex_unlock(confirm_mutex);
@@ -103,6 +105,7 @@ static void *inst_worker(void *arg)
 		pthread_mutex_lock(confirm_mutex);
 		while(!priv->confirm_done) pthread_cond_wait(confirm_cond, confirm_mutex);
 		priv->confirm_done = 0;
+		priv->lastHandle++;
 		pthread_mutex_unlock(confirm_mutex);
 
 		usleep(50000);
@@ -116,7 +119,7 @@ static void *inst_worker(void *arg)
 				&dest,
 				M_MSDU_LENGTH,
 				msdu,
-				0x1,
+				priv->lastHandle,
 				0x01,
 				&sSecSpec,
 				pDeviceRef
@@ -175,10 +178,11 @@ int main(int argc, char *argv[])
 	
 		while(ca821x_util_init(pDeviceRef, &driverErrorCallback))
 		{
-			sleep(1); //Wait until the requested number of devices are connected
+			sleep(1); //Wait while there isn't a device available to connect
 		}
 		pDeviceRef->context = cur;
 
+		//Register callbacks for async messages
 		struct ca821x_api_callbacks callbacks = {0};
 		callbacks.MCPS_DATA_indication = &handleDataIndication;
 		callbacks.MCPS_DATA_confirm = &handleDataConfirm;
@@ -191,6 +195,7 @@ int main(int argc, char *argv[])
 		uint8_t disable = 0; //Disable low LQI rejection @ MAC Layer
 		HWME_SET_request_sync(0x11, 1, &disable, pDeviceRef);
 
+		//Set up MAC pib attributes
 		uint8_t retries = 3;	//Retry transmission 3 times if not acknowledged
 		MLME_SET_request_sync(
 			macMaxFrameRetries,
@@ -258,6 +263,7 @@ int main(int argc, char *argv[])
 		pthread_create(&(insts[i].mWorker), NULL, &inst_worker, &insts[i]);
 	}
 
+	//Draw the table onscreen every second
 	unsigned int time = 0;
 	while(1)
 	{
