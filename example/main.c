@@ -179,7 +179,7 @@ int main(int argc, char *argv[])
 			&maxBE,
 			pDeviceRef);
 
-		uint8_t channel = 20;
+		uint8_t channel = 22;
 		MLME_SET_request_sync(
 			phyCurrentChannel,
 			0,

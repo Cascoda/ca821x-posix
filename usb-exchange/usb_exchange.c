@@ -502,11 +502,11 @@ static int is_hidpath_in_use(char *path)
 
 static struct hid_device_info *get_next_hid(struct hid_device_info *hid_cur)
 {
-	do
+	while (hid_cur != NULL)
 	{
 		if (!is_hidpath_in_use(hid_cur->path)) break;
 		hid_cur = hid_cur->next;
-	} while (hid_cur != NULL);
+	}
 
 	return hid_cur;
 }
