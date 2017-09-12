@@ -111,7 +111,7 @@ static void *inst_worker(void *arg)
 				MAC_MODE_SHORT_ADDR,
 				MAC_MODE_SHORT_ADDR,
 				M_PANID,
-				dest,
+				&dest,
 				M_MSDU_LENGTH,
 				msdu,
 				0x1,

@@ -15,13 +15,13 @@ OBJECTS_MAIN = main.o
 HEADERS := $(foreach DIR,$(INCLUDEDIRS),$(notdir $(wildcard $(DIR)*.h)))
 
 %.o: %.c $(HEADERS)
-        $(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) -c $< -o $@
 
 .PRECIOUS: $(TARGET_MAIN) $(OBJECTS_MAIN)
 
 $(TARGET_MAIN): $(OBJECTS_MAIN)
-        $(CC) $(OBJECTS_MAIN) -Wall $(LIBSEARCH) $(LIBS) -o $@
+	$(CC) $(OBJECTS_MAIN) -Wall $(LIBSEARCH) $(LIBS) -o $@
 
 clean:
-        -rm -f *.o
-        -rm -f $(TARGET_MAIN)
+	-rm -f *.o
+	-rm -f $(TARGET_MAIN)
