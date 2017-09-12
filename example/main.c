@@ -125,6 +125,38 @@ static void *inst_worker(void *arg)
 	return NULL;
 }
 
+void drawTableHeader()
+{
+	printf("|----|");
+	for(int i = 0; i < numInsts; i++)
+	{
+		printf("|----|----|---|");
+	}
+	for(int i = 0; i < numInsts; i++)
+	{
+		printf("|---NODE %02d---|", i)
+	}
+	printf("\n");
+	printf("|TIME|");
+	for(int i = 0; i < numInsts; i++)
+	{
+		printf("|Tx  |Rx  |Err|");
+	}
+	printf("\n");
+}
+
+void drawTableRow()
+{
+	printf("|%4d|", time);
+	pthread_mutex_lock(&out_mutex);
+	for(int i = 0; i < numInsts; i++)
+	{
+		printf("|%4d|%4d|%3d|", insts[i].mTx, insts[i].mRx, insts[i].mErr);
+	}
+	pthread_mutex_unlock(&out_mutex);
+	printf("\n");
+}
+
 int main(int argc, char *argv[])
 {
 	if(argc <= 2) return -1;
@@ -224,31 +256,12 @@ int main(int argc, char *argv[])
 		pthread_create(&(insts[i].mWorker), NULL, &inst_worker, &insts[i]);
 	}
 
-	printf("|----|");
-	for(int i = 0; i < numInsts; i++)
-	{
-		printf("|----|----|---|");
-	}
-	printf("\n");
-	printf("|TIME|");
-	for(int i = 0; i < numInsts; i++)
-	{
-		printf("|Tx  |Rx  |Err|");
-	}
-	printf("\n");
-
 	unsigned int time = 0;
 	while(1)
 	{
+		if((time % 20) == 0) drawTableHeader();
+		drawTableRow();
 		sleep(1);
-		printf("|%4d|", time);
-		pthread_mutex_lock(&out_mutex);
-		for(int i = 0; i < numInsts; i++)
-		{
-			printf("|%4d|%4d|%3d|", insts[i].mTx, insts[i].mRx, insts[i].mErr);
-		}
-		pthread_mutex_unlock(&out_mutex);
-		printf("\n");
 		time++;
 	}
 
