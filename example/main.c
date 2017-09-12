@@ -132,6 +132,7 @@ void drawTableHeader()
 	{
 		printf("|----|----|---|");
 	}
+	printf("\n");
 	for(int i = 0; i < numInsts; i++)
 	{
 		printf("|---NODE %02d---|", i);
