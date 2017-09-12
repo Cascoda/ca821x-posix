@@ -22,6 +22,8 @@ struct inst_priv
 	pthread_t mWorker;
 	uint8_t confirm_done;
 	uint16_t mAddress;
+
+	unsigned int mTx, mRx, mErr;
 };
 
 int numInsts;
@@ -40,7 +42,7 @@ static int handleDataIndication(struct MCPS_DATA_indication_pset *params, struct
 {
 	struct inst_priv *priv = pDeviceRef->context;
 	pthread_mutex_lock(&out_mutex);
-	printf("In(%d)!", priv->mAddress );
+	priv->mRx++;
 	pthread_mutex_unlock(&out_mutex);
 	return 0;
 }
@@ -54,13 +56,13 @@ static int handleDataConfirm(struct MCPS_DATA_confirm_pset *params, struct ca821
 	if(params->Status == MAC_SUCCESS)
 	{
 		pthread_mutex_lock(&out_mutex);
-		printf("Sent(%d)!", priv->mAddress);
+		priv->mTx++;
 		pthread_mutex_unlock(&out_mutex);
 	}
 	else
 	{
 		pthread_mutex_lock(&out_mutex);
-		printf("Fail(%d).", priv->mAddress);
+		priv->mErr++;
 		pthread_mutex_unlock(&out_mutex);
 	}
 
@@ -222,12 +224,32 @@ int main(int argc, char *argv[])
 		pthread_create(&(insts[i].mWorker), NULL, &inst_worker, &insts[i]);
 	}
 
+	printf("|----|");
+	for(int i = 0; i < numInsts; i++)
+	{
+		printf("|----|----|---|");
+	}
+	printf("\n");
+	printf("|TIME|");
+	for(int i = 0; i < numInsts; i++)
+	{
+		printf("|Tx  |Rx  |Err|");
+	}
+	printf("\n");
+
+	unsigned int time = 0;
 	while(1)
 	{
 		sleep(1);
+		printf("|%4d|", time);
 		pthread_mutex_lock(&out_mutex);
-		fflush(stdout);
+		for(int i = 0; i < numInsts; i++)
+		{
+			printf("|%4d|%4d|%3d|", insts[i].mTx, insts[i].mRx, insts[i].mErr);
+		}
 		pthread_mutex_unlock(&out_mutex);
+		printf("\n");
+		time++;
 	}
 
 	return 0;
