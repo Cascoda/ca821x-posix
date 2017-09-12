@@ -538,14 +538,13 @@ int usb_exchange_init_withhandler(ca821x_errorhandler callback,
 	//Iterate through compatible HIDs until one is found that hasn't already
 	//been opened.
 	hid_ll = dhid_enumerate(USB_VID, USB_PID);
-	hid_cur = hid_ll;
+	hid_cur = get_next_hid(hid_ll);
 	while (dev == NULL && hid_cur != NULL)
 	{
-		hid_cur = get_next_hid(hid_cur);
 		dev = dhid_open_path(hid_cur->path);
 		if (dev == NULL)
 		{
-			hid_cur = hid_cur->next;
+			hid_cur = get_next_hid(hid_cur->next);
 		}
 	}
 	if (hid_cur == NULL)
