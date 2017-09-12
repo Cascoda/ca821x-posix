@@ -134,7 +134,7 @@ void drawTableHeader()
 	}
 	for(int i = 0; i < numInsts; i++)
 	{
-		printf("|---NODE %02d---|", i)
+		printf("|---NODE %02d---|", i);
 	}
 	printf("\n");
 	printf("|TIME|");
@@ -145,7 +145,7 @@ void drawTableHeader()
 	printf("\n");
 }
 
-void drawTableRow()
+void drawTableRow(unsigned int time)
 {
 	printf("|%4d|", time);
 	pthread_mutex_lock(&out_mutex);
@@ -260,7 +260,7 @@ int main(int argc, char *argv[])
 	while(1)
 	{
 		if((time % 20) == 0) drawTableHeader();
-		drawTableRow();
+		drawTableRow(time);
 		sleep(1);
 		time++;
 	}
