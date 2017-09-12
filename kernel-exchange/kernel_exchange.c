@@ -120,8 +120,6 @@ static void *ca8210_test_int_read_worker(void *arg)
 	size_t rx_len;
 	int i;
 	struct timeval timeout;
-	timeout.tv_sec = 5;
-	timeout.tv_usec = 0;
 
 	pthread_mutex_lock(&flag_mutex);
 	while (worker_flag) {
@@ -132,7 +130,9 @@ static void *ca8210_test_int_read_worker(void *arg)
 		FD_ZERO(&rx_block_fd_set);
 		FD_SET(DriverFileDescriptor, &rx_block_fd_set);
 
-		//Wait until there is data available to read (or time out after 5 seconds)
+		timeout.tv_sec = 1;
+		timeout.tv_usec = 0;
+		//Wait until there is data available to read (or time out after 1 second)
 		select(DriverFileDescriptor + 1, &rx_block_fd_set, NULL, NULL, &timeout);
 
 		//try to get fresh data
