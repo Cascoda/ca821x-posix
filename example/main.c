@@ -11,9 +11,6 @@
 #define M_MSDU_LENGTH 100
 #define MAX_INSTANCES 3
 
-#define MACFFFT_ACK (1<<2)
-#define MACFFFT 0xDB
-
 static uint8_t msdu[M_MSDU_LENGTH] = {1, 2, 3, 4, 5, 6, 7, 0};
 static struct SecSpec sSecSpec = {0};
 
@@ -25,7 +22,6 @@ struct inst_priv
 	pthread_t mWorker;
 	uint8_t confirm_done;
 	uint16_t mAddress;
-	uint8_t macFFFT;
 };
 
 int numInsts;
@@ -43,9 +39,8 @@ static int driverErrorCallback(int error_number)
 static int handleDataIndication(struct MCPS_DATA_indication_pset *params, struct ca821x_dev *pDeviceRef)   //Async
 {
 	struct inst_priv *priv = pDeviceRef->context;
-	uint16_t dst = GETLE16(params->Dst.Address);
 	pthread_mutex_lock(&out_mutex);
-	printf("In(%d)!", ((struct inst_priv*)pDeviceRef->context)->mAddress );
+	printf("In(%d)!", priv->mAddress );
 	pthread_mutex_unlock(&out_mutex);
 	return 0;
 }
@@ -59,13 +54,13 @@ static int handleDataConfirm(struct MCPS_DATA_confirm_pset *params, struct ca821
 	if(params->Status == MAC_SUCCESS)
 	{
 		pthread_mutex_lock(&out_mutex);
-		printf("Sent(%d)!", ((struct inst_priv*)pDeviceRef->context)->mAddress);
+		printf("Sent(%d)!", priv->mAddress);
 		pthread_mutex_unlock(&out_mutex);
 	}
 	else
 	{
 		pthread_mutex_lock(&out_mutex);
-		printf("Fail(%d).", ((struct inst_priv*)pDeviceRef->context)->mAddress);
+		printf("Fail(%d).", priv->mAddress);
 		pthread_mutex_unlock(&out_mutex);
 	}
 
@@ -90,7 +85,6 @@ static void *inst_worker(void *arg)
 {
 	struct inst_priv *priv = arg;
 	struct ca821x_dev *pDeviceRef = &(priv->pDeviceRef);
-	uint8_t LEarray[2];
 
 	pthread_mutex_t *confirm_mutex = &(priv->confirm_mutex);
 	pthread_cond_t *confirm_cond = &(priv->confirm_cond);
@@ -98,6 +92,8 @@ static void *inst_worker(void *arg)
 	uint16_t i = 0;
 	while(1)
 	{
+		union MacAddr dest;
+
 		do{
 			i = (i+1) % numInsts;
 		} while(&insts[i] == priv);
@@ -110,13 +106,12 @@ static void *inst_worker(void *arg)
 		usleep(50000);
 
 		//fire
-		LEarray[0] = LS0_BYTE(insts[i].mAddress);
-		LEarray[1] = LS1_BYTE(insts[i].mAddress);
+		dest.ShortAddress = insts[i].mAddress;
 		MCPS_DATA_request(
 				MAC_MODE_SHORT_ADDR,
 				MAC_MODE_SHORT_ADDR,
 				M_PANID,
-				LEarray,
+				dest,
 				M_MSDU_LENGTH,
 				msdu,
 				0x1,
@@ -125,6 +120,7 @@ static void *inst_worker(void *arg)
 				pDeviceRef
 				);
 	}
+	return NULL;
 }
 
 int main(int argc, char *argv[])
