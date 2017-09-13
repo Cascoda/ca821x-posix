@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <assert.h>
 
 #include "../ca821x-posix.h"
 
