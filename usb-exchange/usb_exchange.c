@@ -347,7 +347,7 @@ static void *ca8210_test_int_worker(void *arg)
 			if (buffer[0] == 0x20){
 				pthread_mutex_lock(&debg_mutex);
 				s_data_ind++;
-				pthread_mutex_lock(&debg_mutex);
+				pthread_mutex_unlock(&debg_mutex);
 			}
 			if (buffer[0] & SPI_SYN)
 			{
@@ -376,7 +376,7 @@ static void *ca8210_test_int_worker(void *arg)
 			if (buffer[0] == 0x00){
 				pthread_mutex_lock(&debg_mutex);
 				s_data_req++;
-				pthread_mutex_lock(&debg_mutex);
+				pthread_mutex_unlock(&debg_mutex);
 			}
 			offset = 0;
 			priv = pDeviceRef->exchange_context;
