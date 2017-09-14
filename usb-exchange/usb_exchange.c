@@ -356,7 +356,6 @@ static void *ca8210_io_worker(void *arg)
 			}
 		}
 
-	end_loop:
 		pthread_mutex_lock(&flag_mutex);
 	}
 
