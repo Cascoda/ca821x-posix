@@ -103,7 +103,6 @@ static void *ca8210_test_int_read_worker(void *arg)
 {
 	uint8_t rx_buf[512];
 	size_t rx_len;
-	int i;
 	struct timeval timeout;
 
 	pthread_mutex_lock(&flag_mutex);
@@ -234,7 +233,7 @@ int kernel_exchange_reset(unsigned long resettime, struct ca821x_dev *pDeviceRef
 static int ca8210_test_int_write(const uint8_t *buf, size_t len)
 {
 	int returnvalue, remaining = len;
-	int i, attempts = 0;
+	int attempts = 0;
 
 	pthread_mutex_lock(&tx_mutex);
 	do {
@@ -272,7 +271,7 @@ static int ca8210_test_int_exchange(
 	struct ca821x_dev *pDeviceRef
 )
 {
-	int Rx_Length, error, i;
+	int Rx_Length, error;
 	const uint8_t isSynchronous = ((buf[0] & SPI_SYN) && response);
 
 	if(isSynchronous){
