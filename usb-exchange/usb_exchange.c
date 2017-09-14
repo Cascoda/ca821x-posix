@@ -78,9 +78,6 @@ static struct ca821x_dev *s_devs[USB_MAX_DEVICES] = { 0 };
 
 static int s_initialised, s_worker_run_flag, s_devcount = 0;
 
-static pthread_mutex_t debg_mutex = PTHREAD_MUTEX_INITIALIZER;
-static unsigned int s_data_req = 0, s_data_ind = 0;
-
 //Dynamic hid-api library
 static void *s_hid_lib_handle = NULL;
 static struct hid_device_info *(*dhid_enumerate)(unsigned short, unsigned short);
@@ -300,11 +297,6 @@ static void *ca8210_io_worker(void *arg)
 
 		if (error > 0)
 		{
-			if (buffer[0] == 0x20){
-				pthread_mutex_lock(&debg_mutex);
-				s_data_ind++;
-				pthread_mutex_unlock(&debg_mutex);
-			}
 			if (buffer[0] & SPI_SYN)
 			{
 				//Add to queue for synchronous processing
@@ -330,11 +322,6 @@ static void *ca8210_io_worker(void *arg)
 
 		if (len > 0)
 		{
-			if (buffer[0] == 0x00){
-				pthread_mutex_lock(&debg_mutex);
-				s_data_req++;
-				pthread_mutex_unlock(&debg_mutex);
-			}
 			offset = 0;
 			priv = pDeviceRef->exchange_context;
 			do
