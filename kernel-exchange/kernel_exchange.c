@@ -52,7 +52,6 @@
 #define DriverNode              "/ca8210"
 #define DriverFilePath 			(DebugFSMount DriverNode)
 
-#define USE_LOGFILE 1
 #define CA8210_IOCTL_HARD_RESET (0)
 
 /******************************************************************************/
@@ -80,11 +79,6 @@ static fd_set rx_block_fd_set;
 
 static struct ca821x_dev *s_pDeviceRef = NULL;
 
-#ifdef USE_LOGFILE
-static FILE * LogFileDescriptor;
-static pthread_mutex_t file_mutex = PTHREAD_MUTEX_INITIALIZER;
-#endif
-
 static ca821x_errorhandler errorcallback;
 
 /******************************************************************************/
@@ -104,15 +98,6 @@ static void add_to_queue(const uint8_t *buf, size_t len);
 static size_t pop_from_queue(uint8_t * destBuf, size_t maxlen);
 
 /******************************************************************************/
-
-static void writeTime(FILE * stream){
-	struct timeval tv;
-	char timeString[40];
-
-	gettimeofday(&tv, NULL);
-	strftime(timeString, sizeof(timeString), "%Y-%m-%d %H:%M:%S", localtime(&tv.tv_sec));
-	fprintf(stream, "\r\nat: %s.%06d ", timeString, (uint32_t)tv.tv_usec);
-}
 
 static void *ca8210_test_int_read_worker(void *arg)
 {
@@ -138,19 +123,6 @@ static void *ca8210_test_int_read_worker(void *arg)
 		//try to get fresh data
 		if(pthread_mutex_trylock(&rx_mutex) == 0){
 			rx_len = read(DriverFileDescriptor, rx_buf, 0);
-
-#ifdef USE_LOGFILE
-			if (rx_len > 0) {
-				pthread_mutex_lock(&file_mutex);
-				writeTime(LogFileDescriptor);
-				fputs("\r\nReceived Async:",LogFileDescriptor);
-				for(i = 0; i < rx_len; i++){
-					fprintf(LogFileDescriptor, " %02x", rx_buf[i]);
-				}
-				fputs("\r\n",LogFileDescriptor);
-				pthread_mutex_unlock(&file_mutex);
-			}
-#endif
 
 			if(rx_len > 0 && (rx_buf[0] & SPI_SYN)){	//Catch unhandled synchronous commands so synchronicity for future commands is not lost
 				unhandled_sync_count--;
@@ -189,10 +161,6 @@ int kernel_exchange_init_withhandler(ca821x_errorhandler callback,
 
 	errorcallback = callback;
 	
-#ifdef USE_LOGFILE
-	LogFileDescriptor = fopen("exchange.log", "a");
-	fputs("\r\n-------------------NEW SESSION-------------------------\r\n",LogFileDescriptor);
-#endif
 	DriverFileDescriptor = open(DriverFilePath, O_RDWR | O_NONBLOCK);
 
 	if (DriverFileDescriptor == -1) {
@@ -242,12 +210,6 @@ void kernel_exchange_deinit(struct ca821x_dev *pDeviceRef){
 	pthread_mutex_lock(&tx_mutex);
 	pthread_mutex_lock(&rx_mutex);
 	pthread_mutex_lock(&buf_queue_mutex);
-#ifdef USE_LOGFILE
-	pthread_mutex_lock(&file_mutex);
-	do{
-		ret = fclose(LogFileDescriptor);
-	} while(ret < 0 && errno == EINTR);
-#endif
 
 	//close the driver file
 	do{
@@ -259,9 +221,6 @@ void kernel_exchange_deinit(struct ca821x_dev *pDeviceRef){
 	s_pDeviceRef = NULL;
 
 	//unlock all mutexes
-#ifdef USE_LOGFILE
-	pthread_mutex_unlock(&file_mutex);
-#endif
 	pthread_mutex_unlock(&buf_queue_mutex);
 	pthread_mutex_unlock(&rx_mutex);
 	pthread_mutex_unlock(&tx_mutex);
@@ -301,17 +260,6 @@ static int ca8210_test_int_write(const uint8_t *buf, size_t len)
 		}
 
 	} while (remaining > 0);
-
-#ifdef USE_LOGFILE
-	pthread_mutex_lock(&file_mutex);
-	writeTime(LogFileDescriptor);
-	fputs("\r\nWriting data:  ",LogFileDescriptor);
-	for(i = 0; i < len; i++){
-		fprintf(LogFileDescriptor, " %02x", buf[i]);
-	}
-	fputs("\r\n",LogFileDescriptor);
-	pthread_mutex_unlock(&file_mutex);
-#endif
 
 	pthread_mutex_unlock(&tx_mutex);
 	return 0;
@@ -358,19 +306,6 @@ static int ca8210_test_int_exchange(
 	if (isSynchronous) {
 		do {
 			Rx_Length = read(DriverFileDescriptor, response, (size_t) 0);
-			
-#ifdef USE_LOGFILE
-			if (Rx_Length > 0) {
-				pthread_mutex_lock(&file_mutex);
-				writeTime(LogFileDescriptor);
-				fputs("\r\nReceived  Sync:",LogFileDescriptor);
-				for(i = 0; i < Rx_Length; i++){
-					fprintf(LogFileDescriptor, " %02x", response[i]);
-				}
-				fputs("\r\n",LogFileDescriptor);
-				pthread_mutex_unlock(&file_mutex);
-			}
-#endif
 
 			if(Rx_Length > 0 && !(response[0] & SPI_SYN)){
 				//Unexpected asynchronous response
