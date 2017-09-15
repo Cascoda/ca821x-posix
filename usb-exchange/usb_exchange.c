@@ -246,13 +246,16 @@ static void *ca821x_downstream_dispatch_worker(void *arg)
 		                     &downstream_queue_mutex,
 		                     buffer,
 		                     MAX_BUF_SIZE, &pDeviceRef);
-		priv = pDeviceRef->exchange_context;
 
-		if (len > 0) rval = ca821x_downstream_dispatch(buffer, len, pDeviceRef);
-
-		if (rval < 0 && priv->user_callback)
+		if (len > 0)
 		{
-			priv->user_callback(buffer, len, pDeviceRef);
+			priv = pDeviceRef->exchange_context;
+			rval = ca821x_downstream_dispatch(buffer, len, pDeviceRef);
+
+			if (rval < 0 && priv->user_callback)
+			{
+				priv->user_callback(buffer, len, pDeviceRef);
+			}
 		}
 
 		pthread_mutex_lock(&flag_mutex);
