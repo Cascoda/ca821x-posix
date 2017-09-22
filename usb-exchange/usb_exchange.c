@@ -276,7 +276,7 @@ static void *ca8210_io_worker(void *arg)
 
 	do
 	{
-		rval = dhid_read_timeout(priv->hid_dev, frag_buf, MAX_FRAG_SIZE, 0);
+		rval = dhid_read_timeout(priv->hid_dev, frag_buf, MAX_FRAG_SIZE, 10);
 	} while (rval > 0);
 
 	pthread_mutex_lock(&flag_mutex);
