@@ -274,6 +274,11 @@ static void *ca8210_io_worker(void *arg)
 	uint8_t delay, len, offset;
 	int rval, error = 0;
 
+	do
+	{
+		rval = dhid_read_timeout(priv->hid_dev, frag_buf, MAX_FRAG_SIZE, 0);
+	} while (rval > 0);
+
 	pthread_mutex_lock(&flag_mutex);
 	while (s_worker_run_flag && priv->io_thread_runflag)
 	{
