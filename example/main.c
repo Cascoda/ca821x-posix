@@ -11,6 +11,7 @@
 #define M_PANID 0x1AAA
 #define M_MSDU_LENGTH 100
 #define MAX_INSTANCES 3
+#define TX_PERIOD_US 50000
 
 static uint8_t msdu[M_MSDU_LENGTH] = {1, 2, 3, 4, 5, 6, 7, 0};
 static struct SecSpec sSecSpec = {0};
@@ -109,7 +110,7 @@ static void *inst_worker(void *arg)
 		priv->lastHandle++;
 		pthread_mutex_unlock(confirm_mutex);
 
-		usleep(50000);
+		usleep(TX_PERIOD_US);
 
 		//fire
 		dest.ShortAddress = insts[i].mAddress;
