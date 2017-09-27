@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <assert.h>
+#include <signal.h>
 
 #include "../ca821x-posix.h"
 
@@ -33,6 +34,15 @@ int numInsts;
 struct inst_priv insts[MAX_INSTANCES];
 
 pthread_mutex_t out_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static void quit(int sig)
+{
+	for(int i = 0; i < numInsts; i++){
+		pthread_cancel(insts[i].mWorker);
+		pthread_join(insts[i].mWorker, NULL);
+	}
+	exit(0);
+}
 
 static int driverErrorCallback(int error_number)
 {
@@ -110,7 +120,11 @@ static void *inst_worker(void *arg)
 		priv->lastHandle++;
 		pthread_mutex_unlock(confirm_mutex);
 
+		pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+
 		usleep(TX_PERIOD_US);
+
+		pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
 
 		//fire
 		dest.ShortAddress = insts[i].mAddress;
@@ -264,6 +278,8 @@ int main(int argc, char *argv[])
 	{
 		pthread_create(&(insts[i].mWorker), NULL, &inst_worker, &insts[i]);
 	}
+
+	signal(SIGINT, quit);
 
 	//Draw the table onscreen every second
 	unsigned int time = 0;
