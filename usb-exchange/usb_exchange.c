@@ -246,13 +246,16 @@ static void *ca821x_downstream_dispatch_worker(void *arg)
 		                     &downstream_queue_mutex,
 		                     buffer,
 		                     MAX_BUF_SIZE, &pDeviceRef);
-		priv = pDeviceRef->exchange_context;
 
-		if (len > 0) rval = ca821x_downstream_dispatch(buffer, len, pDeviceRef);
-
-		if (rval < 0 && priv->user_callback)
+		if (len > 0)
 		{
-			priv->user_callback(buffer, len, pDeviceRef);
+			priv = pDeviceRef->exchange_context;
+			rval = ca821x_downstream_dispatch(buffer, len, pDeviceRef);
+
+			if (rval < 0 && priv->user_callback)
+			{
+				priv->user_callback(buffer, len, pDeviceRef);
+			}
 		}
 
 		pthread_mutex_lock(&flag_mutex);
@@ -270,6 +273,11 @@ static void *ca8210_io_worker(void *arg)
 	uint8_t frag_buf[MAX_FRAG_SIZE + 1]; //+1 for report ID
 	uint8_t delay, len, offset;
 	int rval, error = 0;
+
+	do
+	{
+		rval = dhid_read_timeout(priv->hid_dev, frag_buf, MAX_FRAG_SIZE, 10);
+	} while (rval > 0);
 
 	pthread_mutex_lock(&flag_mutex);
 	while (s_worker_run_flag && priv->io_thread_runflag)
