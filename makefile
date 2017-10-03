@@ -14,7 +14,7 @@ OBJECTS = $(patsubst %.c, %.o, $(wildcard $(addsuffix *.c,$(SOURCEDIRS))))
 HEADERS = $(wildcard $(INCLUDEDIR),*.h)
 
 %.o: %.c $(HEADERS) subdirs
-	$(CC) $(CFLAGS) -c $< -o $@ -I $(INCLUDEDIR)
+	$(CC) $(CFLAGS) -c $< -o $@ -I $(INCLUDEDIR) -I .
 
 .PRECIOUS: $(TARGET) $(OBJECTS)
 

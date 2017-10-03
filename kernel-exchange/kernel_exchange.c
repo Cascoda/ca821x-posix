@@ -45,6 +45,7 @@
 #include <sys/ioctl.h>
 
 #include "kernel_exchange.h"
+#include "ca821x-posix.h"
 
 /******************************************************************************/
 
@@ -65,85 +66,200 @@ static int ca8210_test_int_exchange(
 
 /******************************************************************************/
 
-static int DriverFileDescriptor;
-static pthread_t rx_thread;
+static int DriverFileDescriptor, DriverFDPipe[2];
 static pthread_mutex_t flag_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t rx_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t tx_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t buf_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t unhandled_sync_cond = PTHREAD_COND_INITIALIZER;
 static int unhandled_sync_count = 0;
-static uint8_t worker_flag = 0;
-static uint8_t initialised = 0;
+static int s_worker_run_flag = 0;
+static int s_initialised = 0;
 static fd_set rx_block_fd_set;
 
-static struct ca821x_dev *s_pDeviceRef = NULL;
-
-static ca821x_errorhandler errorcallback;
+static struct buffer_queue *downstream_dispatch_queue;
+static pthread_mutex_t downstream_queue_mutex;
+static pthread_t dd_thread;
+static pthread_cond_t dd_cond = PTHREAD_COND_INITIALIZER;
 
 /******************************************************************************/
 
-struct buffer_queue{
-	size_t len;
-	uint8_t * buf;
-	struct buffer_queue * next;
+struct kernel_exchange_priv
+{
+	struct ca821x_exchange_base base;
+	ca821x_errorhandler error_callback;
+	usb_exchange_user_callback user_callback;
+
+	//Synchronous queue
+	pthread_t io_thread;
+	int io_thread_runflag;
+	pthread_cond_t sync_cond;
+	pthread_mutex_t sync_mutex;
+	//In queue = Device to host(us)
+	//Out queue = Host(us) to device
+	pthread_mutex_t in_queue_mutex, out_queue_mutex;
+	struct buffer_queue *in_buffer_queue, *out_buffer_queue;
 };
 
-static struct buffer_queue * head_buffer_queue = NULL;
-
-//Add a buffer to the FIFO queue - this is a blocking function
-static void add_to_queue(const uint8_t *buf, size_t len);
-
-//Retrieve a buffer into destBuf - this is a nonblocking function and will return 0 if nothing is retrieved from the queue
-static size_t pop_from_queue(uint8_t * destBuf, size_t maxlen);
-
 /******************************************************************************/
 
-static void *ca8210_test_int_read_worker(void *arg)
+static int ca8210_test_int_write(const uint8_t *, size_t);
+
+static void *ca821x_downstream_dispatch_worker(void *arg)
 {
-	uint8_t rx_buf[512];
-	size_t rx_len;
-	struct timeval timeout;
+	struct ca821x_dev *pDeviceRef;
+	struct kernel_exchange_priv *priv;
+
+	uint8_t buffer[MAX_BUF_SIZE];
+	uint8_t len;
+	int rval;
 
 	pthread_mutex_lock(&flag_mutex);
-	while (worker_flag) {
+	while (s_worker_run_flag)
+	{
 		pthread_mutex_unlock(&flag_mutex);
 
-		rx_len = 0;
+		wait_on_queue(&downstream_dispatch_queue, &downstream_queue_mutex,
+		              &dd_cond);
+		len = pop_from_queue(&downstream_dispatch_queue,
+		                     &downstream_queue_mutex,
+		                     buffer,
+		                     MAX_BUF_SIZE, &pDeviceRef);
+		if (len > 0)
+		{
 
-		FD_ZERO(&rx_block_fd_set);
-		FD_SET(DriverFileDescriptor, &rx_block_fd_set);
+			priv = pDeviceRef->exchange_context;
+			rval = ca821x_downstream_dispatch(buffer, len, pDeviceRef);
 
-		timeout.tv_sec = 1;
-		timeout.tv_usec = 0;
-		//Wait until there is data available to read (or time out after 1 second)
-		select(DriverFileDescriptor + 1, &rx_block_fd_set, NULL, NULL, &timeout);
-
-		//try to get fresh data
-		if(pthread_mutex_trylock(&rx_mutex) == 0){
-			rx_len = read(DriverFileDescriptor, rx_buf, 0);
-
-			if(rx_len > 0 && (rx_buf[0] & SPI_SYN)){	//Catch unhandled synchronous commands so synchronicity for future commands is not lost
-				unhandled_sync_count--;
-				assert(unhandled_sync_count >= 0);
-				pthread_cond_signal(&unhandled_sync_cond);
+			if (rval < 0 && priv->user_callback)
+			{
+				priv->user_callback(buffer, len, pDeviceRef);
 			}
-
-			pthread_mutex_unlock(&rx_mutex);
 		}
 
-		//If nothing was received this cycle, get something from the queue
-		if(rx_len == 0){
-			rx_len = pop_from_queue(rx_buf, 512);
-		}
-
-		if (rx_len > 0) {
-			ca821x_downstream_dispatch(rx_buf, rx_len, s_pDeviceRef);
-		}
 		pthread_mutex_lock(&flag_mutex);
 	}
 
-	return NULL;
+	pthread_mutex_unlock(&flag_mutex);
+	return 0;
+}
+
+static void *ca8210_io_worker(void *arg)
+{
+	struct ca821x_dev *pDeviceRef = arg;
+	struct kernel_exchange_priv *priv = pDeviceRef->exchange_context;
+	uint8_t buffer[MAX_BUF_SIZE];
+	ssize_t rx_len;
+	int error = 0;
+	struct timeval timeout;
+
+	do
+	{
+		rx_len = read(DriverFileDescriptor, buffer, 0);
+	} while (rx_len > 0);
+
+	pthread_mutex_lock(&flag_mutex);
+	while (s_worker_run_flag && priv->io_thread_runflag)
+	{
+		pthread_mutex_unlock(&flag_mutex);
+
+		if (!peek_queue(priv->out_buffer_queue, &(priv->out_queue_mutex)))
+		{
+			timeout.tv_sec = 1;
+			timeout.tv_usec = 0;
+			select(DriverFDPipe[0] + 1, &rx_block_fd_set, NULL, NULL, &timeout);
+		}
+
+		//Read from the device if possible
+		rx_len = read(DriverFileDescriptor, buffer, 0);
+
+		if (rx_len > 0)
+		{
+			if (buffer[0] & SPI_SYN)
+			{
+				//Add to queue for synchronous processing
+				add_to_waiting_queue(&(priv->in_buffer_queue),
+				                     &(priv->in_queue_mutex),
+				                     &(priv->sync_cond),
+				                     buffer, rx_len, pDeviceRef);
+			}
+			else
+			{
+				//Add to queue for dispatching downstream
+				add_to_waiting_queue(&downstream_dispatch_queue,
+				                     &downstream_queue_mutex,
+				                     &dd_cond, buffer, rx_len, pDeviceRef);
+			}
+		}
+
+		//Send any queued messages
+		rx_len = pop_from_queue(&(priv->out_buffer_queue),
+		                     &(priv->out_queue_mutex),
+		                     buffer,
+		                     MAX_BUF_SIZE, &pDeviceRef);
+
+		if (rx_len > 0)
+		{
+			priv = pDeviceRef->exchange_context;
+			error = ca8210_test_int_write(buffer, rx_len);
+		}
+
+		if (error < 0)
+		{
+			if (priv->error_callback)
+			{
+				priv->error_callback(error);
+			}
+			else
+			{
+				abort();
+			}
+		}
+
+		pthread_mutex_lock(&flag_mutex);
+	}
+
+	pthread_mutex_unlock(&flag_mutex);
+	return 0;
+}
+
+static int init_statics()
+{
+	int rval, error = 0;
+
+	s_worker_run_flag = 1;
+	DriverFileDescriptor = -1;
+	rval = pthread_create(&dd_thread, NULL, &ca821x_downstream_dispatch_worker,
+	                      NULL);
+	if (rval != 0)
+	{
+		//The io thread is successfully running but dd is not
+		pthread_mutex_lock(&flag_mutex);
+		s_worker_run_flag = 0;
+		pthread_mutex_unlock(&flag_mutex);
+		error = -1;
+		goto exit;
+	}
+
+	s_initialised = 1;
+
+exit:
+	return error;
+}
+
+static int deinit_statics()
+{
+	s_initialised = 0;
+	pthread_mutex_lock(&flag_mutex);
+	s_worker_run_flag = 0;
+	pthread_mutex_unlock(&flag_mutex);
+
+	//Wake the downstream dispatch thread up so that it dies cleanly
+	add_to_waiting_queue(&downstream_dispatch_queue, &downstream_queue_mutex,
+	                     &dd_cond,
+	                     NULL, 0, NULL);
+
+	return 0;
 }
 
 int kernel_exchange_init(struct ca821x_dev *pDeviceRef){
@@ -153,57 +269,84 @@ int kernel_exchange_init(struct ca821x_dev *pDeviceRef){
 int kernel_exchange_init_withhandler(ca821x_errorhandler callback,
                                      struct ca821x_dev *pDeviceRef)
 {
-	int ret;
+	int error;
+	struct kernel_exchange_priv *priv = NULL;
+
+	if (!s_initialised)
+	{
+		error = init_statics();
+		if (error) return error;
+	}
 
 	if(pDeviceRef->exchange_context) return 1;
-	if(initialised) return -1; //Initialised but not for this pDeviceRef
 
-	errorcallback = callback;
-	
+	if (DriverFileDescriptor != -1) return 1;
+
 	DriverFileDescriptor = open(DriverFilePath, O_RDWR | O_NONBLOCK);
 
 	if (DriverFileDescriptor == -1) {
 		return -1;
 	}
 
-	pDeviceRef->ca821x_api_downstream = ca8210_test_int_exchange;
+	pipe(DriverFDPipe);
+	FD_ZERO(&rx_block_fd_set);
+	FD_SET(DriverFileDescriptor, &rx_block_fd_set);
+	FD_SET(DriverFDPipe[0], &rx_block_fd_set);
 
-	//Empty the receive buffer for clean start
-	pthread_mutex_lock(&rx_mutex);
-	size_t rx_len;
-	do{
-		uint8_t scrap[512];
-		rx_len = read(DriverFileDescriptor, scrap, 0);
-	} while (rx_len != 0);
-	pthread_mutex_unlock(&rx_mutex);
+	pDeviceRef->exchange_context = calloc(1, sizeof(struct kernel_exchange_priv));
+	priv = pDeviceRef->exchange_context;
+	priv->base.exchange_type = ca821x_exchange_kernel;
+	priv->error_callback = callback;
+
+	pthread_mutex_init(&(priv->sync_mutex), NULL);
+	pthread_mutex_init(&(priv->in_queue_mutex), NULL);
+	pthread_mutex_init(&(priv->out_queue_mutex), NULL);
+	pthread_cond_init(&(priv->sync_cond), NULL);
 
 	unhandled_sync_count = 0;
 
 	pthread_mutex_lock(&flag_mutex);
-	worker_flag = 1;
+	priv->io_thread_runflag = 1;
 	pthread_mutex_unlock(&flag_mutex);
 
-	ret = pthread_create(&rx_thread, NULL, ca8210_test_int_read_worker, NULL);
+	error = pthread_create(&(priv->io_thread),
+	                       NULL,
+	                       &ca8210_io_worker,
+	                       pDeviceRef);
 
-	if(ret == 0)
+	if (error != 0)
 	{
-		struct ca821x_exchange_base *base;
-		initialised = 1;
-		pDeviceRef->exchange_context = malloc(sizeof(struct ca821x_exchange_base));
-		base = pDeviceRef->exchange_context;
-		base->exchange_type = ca821x_exchange_kernel;
-		s_pDeviceRef = pDeviceRef;
+		error = -1;
+		goto exit;
 	}
-	return ret;
+
+	pDeviceRef->ca821x_api_downstream = ca8210_test_int_exchange;
+
+exit:
+	if (error && pDeviceRef->exchange_context)
+	{
+		free(pDeviceRef->exchange_context);
+		pDeviceRef->exchange_context = NULL;
+	}
+	return error;
+}
+
+int kernel_exchange_register_user_callback(kernel_exchange_user_callback callback,
+                                           struct ca821x_dev *pDeviceRef)
+{
+	struct kernel_exchange_priv *priv = pDeviceRef->exchange_context;
+
+	if (priv->user_callback) return -1;
+
+	priv->user_callback = callback;
+
+	return 0;
 }
 
 void kernel_exchange_deinit(struct ca821x_dev *pDeviceRef){
 	int ret;
 
-	//Cause the worker thread to terminate
-	pthread_mutex_lock(&flag_mutex);
-	worker_flag = 0;
-	pthread_mutex_unlock(&flag_mutex);
+	deinit_statics();
 
 	//Lock all mutexes
 	pthread_mutex_lock(&tx_mutex);
@@ -214,10 +357,9 @@ void kernel_exchange_deinit(struct ca821x_dev *pDeviceRef){
 	do{
 		ret = close(DriverFileDescriptor);
 	} while(ret < 0 && errno == EINTR);
-	initialised = 0;
+	s_initialised = 0;
 	free(pDeviceRef->exchange_context);
 	pDeviceRef->exchange_context = NULL;
-	s_pDeviceRef = NULL;
 
 	//unlock all mutexes
 	pthread_mutex_unlock(&buf_queue_mutex);
@@ -271,105 +413,41 @@ static int ca8210_test_int_exchange(
 	struct ca821x_dev *pDeviceRef
 )
 {
-	int Rx_Length, error;
 	const uint8_t isSynchronous = ((buf[0] & SPI_SYN) && response);
+	struct kernel_exchange_priv *priv = pDeviceRef->exchange_context;
+	struct ca821x_dev *ref_out;
+	const uint8_t dummybyte = 0;
+
+	if (!s_initialised) return -1;
 
 	if(isSynchronous){
-		pthread_mutex_lock(&rx_mutex);	//Enforce synchronous write then read
-		while(unhandled_sync_count != 0) {pthread_cond_wait(&unhandled_sync_cond, &rx_mutex);}
+		pthread_mutex_lock(&(priv->sync_mutex));	//Enforce synchronous write then read
+		while(unhandled_sync_count != 0) {pthread_cond_wait(&unhandled_sync_cond, &(priv->sync_mutex));}
 	}
 	else if(buf[0] & SPI_SYN){
-		pthread_mutex_lock(&rx_mutex);
+		pthread_mutex_lock(&(priv->sync_mutex));
 		unhandled_sync_count++;
-		pthread_mutex_unlock(&rx_mutex);
+		pthread_mutex_unlock(&(priv->sync_mutex));
 	}
 
-	error = ca8210_test_int_write(buf, len);
-	if(error){
-		//Revert all state changes and release mutexes
-		if(isSynchronous)pthread_mutex_unlock(&rx_mutex);
-		else if(buf[0] & SPI_SYN){
-			pthread_mutex_lock(&rx_mutex);
-			unhandled_sync_count--;
-			pthread_mutex_unlock(&rx_mutex);
-		}
+	add_to_queue(&(priv->out_buffer_queue),
+	             &(priv->out_queue_mutex),
+	             buf,
+	             len,
+	             pDeviceRef);
+	write(DriverFDPipe[1], &dummybyte, 1);
 
-		//Call the errorcallback or crash the program
-		if(errorcallback) errorcallback(error);
-		else abort();
+	if (!isSynchronous) return 0;
 
-		//Return a failure to the next highest layer
-		return -1;
-	}
+	wait_on_queue(&(priv->in_buffer_queue), &(priv->in_queue_mutex),
+	              &(priv->sync_cond));
 
-	if (isSynchronous) {
-		do {
-			Rx_Length = read(DriverFileDescriptor, response, (size_t) 0);
+	pop_from_queue(&(priv->in_buffer_queue), &(priv->in_queue_mutex), response,
+	               sizeof(struct MAC_Message),
+	               &ref_out);
 
-			if(Rx_Length > 0 && !(response[0] & SPI_SYN)){
-				//Unexpected asynchronous response
-				add_to_queue(response, Rx_Length);
-				Rx_Length = 0;
-			}
-
-		} while (Rx_Length == 0);
-		pthread_mutex_unlock(&rx_mutex);
-	}
-
+	assert(ref_out == pDeviceRef);
+	pthread_mutex_unlock(&(priv->sync_mutex));
 
 	return 0;
-}
-
-static void add_to_queue(const uint8_t *buf, size_t len){
-	pthread_mutex_lock(&buf_queue_mutex);
-	{
-		struct buffer_queue * nextbuf = head_buffer_queue;
-		if(nextbuf == NULL){
-			//queue empty -> start new queue
-			head_buffer_queue = malloc(sizeof(struct buffer_queue));
-			memset(head_buffer_queue, 0, sizeof(struct buffer_queue));
-			nextbuf = head_buffer_queue;
-		}
-		else{
-			while(nextbuf->next != NULL){
-				nextbuf = nextbuf->next;
-			}
-			//allocate new buffer cell
-			nextbuf->next = malloc(sizeof(struct buffer_queue));
-			memset(nextbuf->next, 0, sizeof(struct buffer_queue));
-			nextbuf = nextbuf->next;
-		}
-
-		nextbuf->len = len;
-		nextbuf->buf = malloc(len);
-		memcpy(nextbuf->buf, buf, len);
-
-	}
-	pthread_mutex_unlock(&buf_queue_mutex);
-}
-
-static size_t pop_from_queue(uint8_t * destBuf, size_t maxlen){
-
-	if(pthread_mutex_trylock(&buf_queue_mutex) == 0){
-
-		struct buffer_queue * current = head_buffer_queue;
-		size_t len = 0;
-
-		if(head_buffer_queue != NULL){
-			head_buffer_queue = current->next;
-			len = current->len;
-
-			if(len > maxlen) len = 0;
-
-			memcpy(destBuf, current->buf, len);
-
-			free(current->buf);
-			free(current);
-		}
-
-		pthread_mutex_unlock(&buf_queue_mutex);
-		return len;
-	}
-	return 0;
-
 }

@@ -35,6 +35,17 @@
 #include "ca821x_api.h"
 #include "../ca821x-types.h"
 
+/* Optional callback for the application layer
+ * to handle any non-ca821x communication with
+ * a usb device over the same protocol. Any
+ * command IDs which are not recognised as
+ * a valid ca821x SPI command will be passed
+ * to this callback.
+ */
+typedef int (*kernel_exchange_user_callback)(
+	const uint8_t *buf, size_t len, void *pDeviceRef
+);
+
 /*
  * Must call ONE of the following functions in order to initialize driver communications
  *

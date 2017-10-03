@@ -41,11 +41,11 @@
 #include "hidapi/hidapi/hidapi.h"
 #include "usb_exchange.h"
 #include "ca821x_api.h"
+#include "ca821x-posix.h"
 
 #define USB_VID 0x0416
 #define USB_PID 0x5020
 
-#define MAX_BUF_SIZE 189
 #define MAX_FRAG_SIZE 64
 #define POLL_DELAY 2
 
@@ -70,6 +70,8 @@ struct usb_exchange_priv
 	int io_thread_runflag;
 	pthread_cond_t sync_cond;
 	pthread_mutex_t sync_mutex;
+	//In queue = Device to host(us)
+	//Out queue = Host(us) to device
 	pthread_mutex_t in_queue_mutex, out_queue_mutex;
 	struct buffer_queue *in_buffer_queue, *out_buffer_queue;
 };
@@ -92,44 +94,8 @@ static pthread_mutex_t flag_mutex = PTHREAD_MUTEX_INITIALIZER,
 static pthread_cond_t dd_cond = PTHREAD_COND_INITIALIZER,
                       devs_cond = PTHREAD_COND_INITIALIZER;
 
-struct buffer_queue
-{
-	size_t len;
-	uint8_t * buf;
-	struct ca821x_dev *pDeviceRef;
-	struct buffer_queue * next;
-};
-
-//In queue = Device to host(us)
-//Out queue = Host(us) to device
 static struct buffer_queue *downstream_dispatch_queue = NULL;
 static pthread_mutex_t downstream_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
-
-static void add_to_queue(struct buffer_queue **head_buffer_queue,
-                         pthread_mutex_t *buf_queue_mutex,
-                         const uint8_t *buf,
-                         size_t len,
-                         struct ca821x_dev *pDeviceRef);
-
-static void add_to_waiting_queue(struct buffer_queue **head_buffer_queue,
-                                 pthread_mutex_t *buf_queue_mutex,
-                                 pthread_cond_t *queue_cond,
-                                 const uint8_t *buf,
-                                 size_t len,
-                                 struct ca821x_dev *pDeviceRef);
-
-static size_t pop_from_queue(struct buffer_queue **head_buffer_queue,
-                             pthread_mutex_t *buf_queue_mutex,
-                             uint8_t * destBuf,
-                             size_t maxlen,
-                             struct ca821x_dev **pDeviceRef_out);
-
-static size_t peek_queue(struct buffer_queue *head_buffer_queue,
-                         pthread_mutex_t *buf_queue_mutex);
-
-static size_t wait_on_queue(struct buffer_queue ** head_buffer_queue,
-                            pthread_mutex_t *buf_queue_mutex,
-                            pthread_cond_t *queue_cond);
 
 static int ca8210_test_int_exchange(const uint8_t *buf,
                                     size_t len,
@@ -667,127 +633,4 @@ static int ca8210_test_int_exchange(
 	pthread_mutex_unlock(&(priv->sync_mutex));
 
 	return 0;
-}
-
-static void add_to_queue(struct buffer_queue **head_buffer_queue,
-                         pthread_mutex_t *buf_queue_mutex,
-                         const uint8_t *buf,
-                         size_t len,
-                         struct ca821x_dev *pDeviceRef)
-{
-	add_to_waiting_queue(head_buffer_queue,
-	                     buf_queue_mutex,
-	                     NULL, buf, len, pDeviceRef);
-}
-
-static void add_to_waiting_queue(struct buffer_queue **head_buffer_queue,
-                                 pthread_mutex_t *buf_queue_mutex,
-                                 pthread_cond_t *queue_cond,
-                                 const uint8_t *buf,
-                                 size_t len,
-                                 struct ca821x_dev *pDeviceRef)
-{
-	if (pthread_mutex_lock(buf_queue_mutex) == 0)
-	{
-		struct buffer_queue *nextbuf = *head_buffer_queue;
-		if (nextbuf == NULL)
-		{
-			//queue empty -> start new queue
-			*head_buffer_queue = malloc(sizeof(struct buffer_queue));
-			memset(*head_buffer_queue, 0, sizeof(struct buffer_queue));
-			nextbuf = *head_buffer_queue;
-		}
-		else
-		{
-			while (nextbuf->next != NULL)
-			{
-				nextbuf = nextbuf->next;
-			}
-			//allocate new buffer cell
-			nextbuf->next = malloc(sizeof(struct buffer_queue));
-			memset(nextbuf->next, 0, sizeof(struct buffer_queue));
-			nextbuf = nextbuf->next;
-		}
-
-		nextbuf->len = len;
-		nextbuf->buf = malloc(len);
-		memcpy(nextbuf->buf, buf, len);
-		nextbuf->pDeviceRef = pDeviceRef;
-		if (queue_cond) pthread_cond_broadcast(queue_cond);
-		pthread_mutex_unlock(buf_queue_mutex);
-	}
-}
-
-static size_t pop_from_queue(struct buffer_queue **head_buffer_queue,
-                             pthread_mutex_t *buf_queue_mutex,
-                             uint8_t * destBuf,
-                             size_t maxlen,
-                             struct ca821x_dev **pDeviceRef_out)
-{
-	if (pthread_mutex_lock(buf_queue_mutex) == 0)
-	{
-		struct buffer_queue * current = *head_buffer_queue;
-		size_t len = 0;
-
-		if (*head_buffer_queue != NULL)
-		{
-			*head_buffer_queue = current->next;
-			len = current->len;
-
-			if (len > maxlen) len = 0; //Invalid
-
-			memcpy(destBuf, current->buf, len);
-			*pDeviceRef_out = current->pDeviceRef;
-
-			free(current->buf);
-			free(current);
-		}
-
-		pthread_mutex_unlock(buf_queue_mutex);
-		return len;
-	}
-	return 0;
-}
-
-//return the length of the next buffer in the queue if it exists, otherwise 0
-static size_t peek_queue(struct buffer_queue * head_buffer_queue,
-                         pthread_mutex_t *buf_queue_mutex)
-{
-	size_t in_queue = 0;
-
-	if (pthread_mutex_lock(buf_queue_mutex) == 0)
-	{
-		if (head_buffer_queue != NULL)
-		{
-			in_queue = head_buffer_queue->len;
-		}
-		pthread_mutex_unlock(buf_queue_mutex);
-	}
-	return in_queue;
-}
-
-//return the length of the next buffer in the queue, blocking until
-//it arrives. Returns length of buffer (or -1 upon error).
-static size_t wait_on_queue(struct buffer_queue ** head_buffer_queue,
-                            pthread_mutex_t *buf_queue_mutex,
-                            pthread_cond_t *queue_cond)
-{
-	size_t in_queue = -1;
-
-	if (pthread_mutex_lock(buf_queue_mutex) == 0)
-	{
-		do
-		{
-			if (*head_buffer_queue != NULL)
-			{
-				in_queue = (*head_buffer_queue)->len;
-			}
-			else
-			{
-				pthread_cond_wait(queue_cond, buf_queue_mutex);
-			}
-		} while (in_queue == ((size_t) -1));
-		pthread_mutex_unlock(buf_queue_mutex);
-	}
-	return in_queue;
 }
