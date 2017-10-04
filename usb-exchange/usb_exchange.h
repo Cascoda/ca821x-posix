@@ -33,7 +33,7 @@
 #define USB_EXCHANGE_H
 
 #include "ca821x_api.h"
-#include "../ca821x-types.h"
+#include "ca821x-types.h"
 #define TEST_ENABLE 1
 
 enum usb_exchange_errors {
@@ -41,17 +41,6 @@ enum usb_exchange_errors {
 	usb_exchange_err_ca821x,	//ca821x error - can probably trigger a hard reset and recover
 	usb_exchange_err_generic
 };
-
-/* Optional callback for the application layer
- * to handle any non-ca821x communication with
- * a usb device over the same protocol. Any
- * command IDs which are not recognised as
- * a valid ca821x SPI command will be passed
- * to this callback.
- */
-typedef int (*usb_exchange_user_callback)(
-	const uint8_t *buf, size_t len, void *pDeviceRef
-);
 
 /*
  * Must call ONE of the following functions in order to initialize driver communications
@@ -99,7 +88,7 @@ int usb_exchange_init_withhandler(ca821x_errorhandler callback,
  * @returns 0 for success, -1 for error
  *
  */
-int usb_exchange_register_user_callback(usb_exchange_user_callback callback,
+int usb_exchange_register_user_callback(exchange_user_callback callback,
                                         struct ca821x_dev *pDeviceRef);
 
 /**

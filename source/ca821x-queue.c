@@ -1,5 +1,8 @@
-/*
- * Copyright (c) 2017, Cascoda
+/**
+ * @file ca821x_queue.c
+ * @brief Queue manipulation for ca821x-posix data exchange
+ *//*
+ * Copyright (c) 2016, Cascoda
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,20 +32,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <stdlib.h>
-#include <stdint.h>
-#include <pthread.h>
 #include <string.h>
 
-#include "ca821x-posix.h"
-
-struct buffer_queue
-{
-	size_t len;
-	uint8_t * buf;
-	struct ca821x_dev *pDeviceRef;
-	struct buffer_queue * next;
-};
+#include "ca821x-queue.h"
 
 void add_to_queue(struct buffer_queue **head_buffer_queue,
                          pthread_mutex_t *buf_queue_mutex,

@@ -41,12 +41,14 @@
 #include "hidapi/hidapi/hidapi.h"
 #include "usb_exchange.h"
 #include "ca821x_api.h"
-#include "ca821x-posix.h"
+#include "ca821x-queue.h"
+#include "ca821x-generic-exchange.h"
 
 #define USB_VID 0x0416
 #define USB_PID 0x5020
 
 #define MAX_FRAG_SIZE 64
+/** Max time to wait on rx data in milliseconds */
 #define POLL_DELAY 2
 
 #ifndef USB_MAX_DEVICES
@@ -62,23 +64,11 @@ struct usb_exchange_priv
 	struct ca821x_exchange_base base;
 	hid_device *hid_dev;
 	char *hid_path;
-	ca821x_errorhandler error_callback;
-	usb_exchange_user_callback user_callback;
-
-	//Synchronous queue
-	pthread_t io_thread;
-	int io_thread_runflag;
-	pthread_cond_t sync_cond;
-	pthread_mutex_t sync_mutex;
-	//In queue = Device to host(us)
-	//Out queue = Host(us) to device
-	pthread_mutex_t in_queue_mutex, out_queue_mutex;
-	struct buffer_queue *in_buffer_queue, *out_buffer_queue;
 };
 
 static struct ca821x_dev *s_devs[USB_MAX_DEVICES] = { 0 };
-
-static int s_initialised, s_worker_run_flag, s_devcount = 0;
+static int s_devcount = 0;
+static int s_initialised = 0;
 
 //Dynamic hid-api library
 static void *s_hid_lib_handle = NULL;
@@ -88,14 +78,8 @@ static void (*dhid_free_enumeration)(struct hid_device_info *);
 static int (*dhid_read_timeout)(hid_device *, unsigned char *, size_t, int);
 static int (*dhid_write)(hid_device *, const unsigned char *, size_t);
 
-static pthread_t dd_thread;
-static pthread_mutex_t flag_mutex = PTHREAD_MUTEX_INITIALIZER,
-                       devs_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t dd_cond = PTHREAD_COND_INITIALIZER,
-                      devs_cond = PTHREAD_COND_INITIALIZER;
-
-static struct buffer_queue *downstream_dispatch_queue = NULL;
-static pthread_mutex_t downstream_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t devs_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t devs_cond = PTHREAD_COND_INITIALIZER;
 
 static int ca8210_test_int_exchange(const uint8_t *buf,
                                     size_t len,
@@ -103,7 +87,7 @@ static int ca8210_test_int_exchange(const uint8_t *buf,
                                     struct ca821x_dev *pDeviceRef);
 
 //returns 1 for non-final fragment, 0 for final
-static int get_next_frag(uint8_t *buf_in, uint8_t len_in, uint8_t *frag_out,
+static int get_next_frag(const uint8_t *buf_in, uint8_t len_in, uint8_t *frag_out,
                          uint8_t *offset)
 {
 	int end_offset = *offset + MAX_FRAG_SIZE - 1;
@@ -191,137 +175,71 @@ void test_frag_loopback()
 }
 #endif
 
-static void *ca821x_downstream_dispatch_worker(void *arg)
+ssize_t usb_try_read(struct ca821x_dev *pDeviceRef,
+                 uint8_t *buf)
 {
-	struct ca821x_dev *pDeviceRef;
-	struct usb_exchange_priv *priv;
-
-	uint8_t buffer[MAX_BUF_SIZE];
-	uint8_t len;
-	int rval;
-
-	pthread_mutex_lock(&flag_mutex);
-	while (s_worker_run_flag)
-	{
-		pthread_mutex_unlock(&flag_mutex);
-
-		wait_on_queue(&downstream_dispatch_queue, &downstream_queue_mutex,
-		              &dd_cond);
-
-		len = pop_from_queue(&downstream_dispatch_queue,
-		                     &downstream_queue_mutex,
-		                     buffer,
-		                     MAX_BUF_SIZE, &pDeviceRef);
-
-		if (len > 0)
-		{
-			priv = pDeviceRef->exchange_context;
-			rval = ca821x_downstream_dispatch(buffer, len, pDeviceRef);
-
-			if (rval < 0 && priv->user_callback)
-			{
-				priv->user_callback(buffer, len, pDeviceRef);
-			}
-		}
-
-		pthread_mutex_lock(&flag_mutex);
-	}
-
-	pthread_mutex_unlock(&flag_mutex);
-	return 0;
-}
-
-static void *ca8210_io_worker(void *arg)
-{
-	struct ca821x_dev *pDeviceRef = arg;
 	struct usb_exchange_priv *priv = pDeviceRef->exchange_context;
-	uint8_t buffer[MAX_BUF_SIZE];
 	uint8_t frag_buf[MAX_FRAG_SIZE + 1]; //+1 for report ID
 	uint8_t delay, len, offset;
-	int rval, error = 0;
+	int error;
 
+	if (peek_queue(priv->base.out_buffer_queue, &(priv->base.out_queue_mutex)))
+	{ //Use a nonblocking read if we are waiting to send messages
+		delay = 0;
+	}
+	else
+	{
+		delay = POLL_DELAY;
+	}
+
+	//Read from the device if possible
+	offset = 0;
+	do
+	{
+		error = dhid_read_timeout(priv->hid_dev, frag_buf, MAX_FRAG_SIZE,
+		                          delay);
+		if (error <= 0) break;
+		delay = -1;
+	} while (assemble_frags(frag_buf, buf, &len, &offset));
+
+	if (error <= 0)
+	{
+		return error;
+	}
+	return len;
+}
+
+int usb_try_write(const uint8_t *buffer,
+                  size_t len,
+                  struct ca821x_dev *pDeviceRef)
+{
+	uint8_t offset = 0;
+	uint8_t frag_buf[MAX_FRAG_SIZE + 1]; //+1 for report ID
+	int rval, error;
+	struct usb_exchange_priv *priv = pDeviceRef->exchange_context;
+
+	do
+	{
+		rval = get_next_frag(buffer, len, frag_buf, &offset);
+		error = dhid_write(priv->hid_dev, frag_buf, MAX_FRAG_SIZE + 1);
+	} while (rval);
+
+	if (error < 0)
+	{
+		error = -usb_exchange_err_usb;
+	}
+	return error;
+}
+
+void flush_unread_usb(struct ca821x_dev *pDeviceRef)
+{
+	struct usb_exchange_priv *priv = pDeviceRef->exchange_context;
+	uint8_t frag_buf[MAX_FRAG_SIZE + 1]; //+1 for report ID
+	int rval;
 	do
 	{
 		rval = dhid_read_timeout(priv->hid_dev, frag_buf, MAX_FRAG_SIZE, 10);
 	} while (rval > 0);
-
-	pthread_mutex_lock(&flag_mutex);
-	while (s_worker_run_flag && priv->io_thread_runflag)
-	{
-		pthread_mutex_unlock(&flag_mutex);
-
-		if (peek_queue(priv->out_buffer_queue, &(priv->out_queue_mutex)))
-		{ //Use a nonblocking read if we are waiting to send messages
-			delay = 0;
-		}
-		else
-		{
-			delay = POLL_DELAY;
-		}
-
-		//Read from the device if possible
-		offset = 0;
-		do
-		{
-			error = dhid_read_timeout(priv->hid_dev, frag_buf, MAX_FRAG_SIZE,
-			                          delay);
-			if (error <= 0) break;
-			delay = -1;
-		} while (assemble_frags(frag_buf, buffer, &len, &offset));
-
-		if (error > 0)
-		{
-			if (buffer[0] & SPI_SYN)
-			{
-				//Add to queue for synchronous processing
-				add_to_waiting_queue(&(priv->in_buffer_queue),
-				                     &(priv->in_queue_mutex),
-				                     &(priv->sync_cond),
-				                     buffer, len, pDeviceRef);
-			}
-			else
-			{
-				//Add to queue for dispatching downstream
-				add_to_waiting_queue(&downstream_dispatch_queue,
-				                     &downstream_queue_mutex,
-				                     &dd_cond, buffer, len, pDeviceRef);
-			}
-		}
-
-		//Send any queued messages
-		len = pop_from_queue(&(priv->out_buffer_queue),
-		                     &(priv->out_queue_mutex),
-		                     buffer,
-		                     MAX_BUF_SIZE, &pDeviceRef);
-
-		if (len > 0)
-		{
-			offset = 0;
-			priv = pDeviceRef->exchange_context;
-			do
-			{
-				rval = get_next_frag(buffer, len, frag_buf, &offset);
-				error = dhid_write(priv->hid_dev, frag_buf, MAX_FRAG_SIZE + 1);
-			} while (rval);
-		}
-
-		if (error < 0)
-		{
-			if (priv->error_callback)
-			{
-				priv->error_callback(usb_exchange_err_usb);
-			}
-			else
-			{
-				abort();
-			}
-		}
-
-		pthread_mutex_lock(&flag_mutex);
-	}
-
-	pthread_mutex_unlock(&flag_mutex);
-	return 0;
 }
 
 static int load_dlibs()
@@ -363,23 +281,13 @@ exit:
 
 static int init_statics()
 {
-	int rval, error = 0;
+	int error = 0;
 
 	error = load_dlibs();
 	if(error) goto exit;
 
-	s_worker_run_flag = 1;
-	rval = pthread_create(&dd_thread, NULL, &ca821x_downstream_dispatch_worker,
-	                      NULL);
-	if (rval != 0)
-	{
-		//The io thread is successfully running but dd is not
-		pthread_mutex_lock(&flag_mutex);
-		s_worker_run_flag = 0;
-		pthread_mutex_unlock(&flag_mutex);
-		error = -1;
-		goto exit;
-	}
+	error = init_generic_statics();
+	if(error) goto exit;
 
 	s_initialised = 1;
 
@@ -391,14 +299,8 @@ static int deinit_statics()
 {
 
 	s_initialised = 0;
-	pthread_mutex_lock(&flag_mutex);
-	s_worker_run_flag = 0;
-	pthread_mutex_unlock(&flag_mutex);
 
-	//Wake the downstream dispatch thread up so that it dies cleanly
-	add_to_waiting_queue(&downstream_dispatch_queue, &downstream_queue_mutex,
-	                     &dd_cond,
-	                     NULL, 0, NULL);
+	deinit_generic_statics();
 
 	//TODO: Should probably wait for the workers to actually complete here
 
@@ -480,23 +382,26 @@ int usb_exchange_init_withhandler(ca821x_errorhandler callback,
 	pDeviceRef->exchange_context = calloc(1, sizeof(struct usb_exchange_priv));
 	priv = pDeviceRef->exchange_context;
 	priv->base.exchange_type = ca821x_exchange_usb;
-	priv->error_callback = callback;
+	priv->base.error_callback = callback;
+	priv->base.write_func = usb_try_write;
+	priv->base.read_func = usb_try_read;
+	priv->base.flush_func = flush_unread_usb;
 
 	len = strlen(hid_cur->path);
 	priv->hid_path = calloc(1, len + 1);
 	strncpy(priv->hid_path, hid_cur->path, len);
 	priv->hid_dev = dev;
 
-	pthread_mutex_init(&(priv->sync_mutex), NULL);
-	pthread_mutex_init(&(priv->in_queue_mutex), NULL);
-	pthread_mutex_init(&(priv->out_queue_mutex), NULL);
-	pthread_cond_init(&(priv->sync_cond), NULL);
+	pthread_mutex_init(&(priv->base.sync_mutex), NULL);
+	pthread_mutex_init(&(priv->base.in_queue_mutex), NULL);
+	pthread_mutex_init(&(priv->base.out_queue_mutex), NULL);
+	pthread_cond_init(&(priv->base.sync_cond), NULL);
 
 	pthread_mutex_lock(&flag_mutex);
-	priv->io_thread_runflag = 1;
+	priv->base.io_thread_runflag = 1;
 	pthread_mutex_unlock(&flag_mutex);
 
-	error = pthread_create(&(priv->io_thread),
+	error = pthread_create(&(priv->base.io_thread),
 	                       NULL,
 	                       &ca8210_io_worker,
 	                       pDeviceRef);
@@ -532,18 +437,6 @@ exit:
 	return error;
 }
 
-int usb_exchange_register_user_callback(usb_exchange_user_callback callback,
-                                        struct ca821x_dev *pDeviceRef)
-{
-	struct usb_exchange_priv *priv = pDeviceRef->exchange_context;
-
-	if (priv->user_callback) return -1;
-
-	priv->user_callback = callback;
-
-	return 0;
-}
-
 void usb_exchange_deinit(struct ca821x_dev *pDeviceRef)
 {
 	struct usb_exchange_priv *priv = pDeviceRef->exchange_context;
@@ -563,15 +456,15 @@ void usb_exchange_deinit(struct ca821x_dev *pDeviceRef)
 	pthread_mutex_unlock(&devs_mutex);
 
 	pthread_mutex_lock(&flag_mutex);
-	priv->io_thread_runflag = 0;
+	priv->base.io_thread_runflag = 0;
 	pthread_mutex_unlock(&flag_mutex);
 
 	//TODO: Wait for worker thread completion
 
-	pthread_mutex_destroy(&(priv->sync_mutex));
-	pthread_mutex_destroy(&(priv->in_queue_mutex));
-	pthread_cond_destroy(&(priv->sync_cond));
-	priv->error_callback = NULL;
+	pthread_mutex_destroy(&(priv->base.sync_mutex));
+	pthread_mutex_destroy(&(priv->base.in_queue_mutex));
+	pthread_cond_destroy(&(priv->base.sync_cond));
+	priv->base.error_callback = NULL;
 	free(priv->hid_path);
 	free(priv);
 	pDeviceRef->exchange_context = NULL;
@@ -589,8 +482,8 @@ int usb_exchange_user_send(const uint8_t *buf, size_t len,
 	assert(!(buf[0] & SPI_SYN));
 	assert(len < MAX_BUF_SIZE);
 	if (!s_initialised) return -1;
-	add_to_queue(&(priv->out_buffer_queue),
-	             &(priv->out_queue_mutex),
+	add_to_queue(&(priv->base.out_buffer_queue),
+	             &(priv->base.out_queue_mutex),
 	             buf,
 	             len,
 	             pDeviceRef);
@@ -612,25 +505,25 @@ static int ca8210_test_int_exchange(
 	//Get sync responses from the in queue
 	//Send messages by adding them to the out queue
 
-	if (isSynchronous) pthread_mutex_lock(&(priv->sync_mutex));
+	if (isSynchronous) pthread_mutex_lock(&(priv->base.sync_mutex));
 
-	add_to_queue(&(priv->out_buffer_queue),
-	             &(priv->out_queue_mutex),
+	add_to_queue(&(priv->base.out_buffer_queue),
+	             &(priv->base.out_queue_mutex),
 	             buf,
 	             len,
 	             pDeviceRef);
 
 	if (!isSynchronous) return 0;
 
-	wait_on_queue(&(priv->in_buffer_queue), &(priv->in_queue_mutex),
-	              &(priv->sync_cond));
+	wait_on_queue(&(priv->base.in_buffer_queue), &(priv->base.in_queue_mutex),
+	              &(priv->base.sync_cond));
 
-	pop_from_queue(&(priv->in_buffer_queue), &(priv->in_queue_mutex), response,
+	pop_from_queue(&(priv->base.in_buffer_queue), &(priv->base.in_queue_mutex), response,
 	               sizeof(struct MAC_Message),
 	               &ref_out);
 
 	assert(ref_out == pDeviceRef);
-	pthread_mutex_unlock(&(priv->sync_mutex));
+	pthread_mutex_unlock(&(priv->base.sync_mutex));
 
 	return 0;
 }

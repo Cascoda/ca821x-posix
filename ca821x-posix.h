@@ -1,16 +1,10 @@
 #ifndef CA821X_POSIX_H
 #define CA821X_POSIX_H 1
 
-#include <pthread.h>
-
 #include "ca821x-api/include/ca821x_api.h"
 #include "usb-exchange/usb_exchange.h"
 #include "kernel-exchange/kernel_exchange.h"
 #include "ca821x-types.h"
-
-#define MAX_BUF_SIZE 189
-
-struct buffer_queue;
 
 /**
  * Generic function to initialise an available ca821x device. This includes
@@ -59,31 +53,5 @@ void ca821x_util_deinit(struct ca821x_dev *pDeviceRef);
  *
  */
 int ca821x_util_reset(struct ca821x_dev *pDeviceRef);
-
-void add_to_queue(struct buffer_queue **head_buffer_queue,
-	pthread_mutex_t *buf_queue_mutex,
-	const uint8_t *buf,
-	size_t len,
-	struct ca821x_dev *pDeviceRef);
-
-void add_to_waiting_queue(struct buffer_queue **head_buffer_queue,
-	pthread_mutex_t *buf_queue_mutex,
-	pthread_cond_t *queue_cond,
-	const uint8_t *buf,
-	size_t len,
-	struct ca821x_dev *pDeviceRef);
-
-size_t pop_from_queue(struct buffer_queue **head_buffer_queue,
-	pthread_mutex_t *buf_queue_mutex,
-	uint8_t * destBuf,
-	size_t maxlen,
-	struct ca821x_dev **pDeviceRef_out);
-
-size_t peek_queue(struct buffer_queue *head_buffer_queue,
-	pthread_mutex_t *buf_queue_mutex);
-
-size_t wait_on_queue(struct buffer_queue ** head_buffer_queue,
-	pthread_mutex_t *buf_queue_mutex,
-	pthread_cond_t *queue_cond);
 
 #endif //CA821X_POSIX_H
