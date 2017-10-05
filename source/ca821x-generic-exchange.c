@@ -142,6 +142,19 @@ int exchange_register_user_callback(exchange_user_callback callback,
 	return 0;
 }
 
+int exchange_handle_error(int error, struct ca821x_exchange_base *priv)
+{
+	if (priv->error_callback)
+	{
+		return priv->error_callback(error);
+	}
+	else
+	{
+		abort();
+	}
+	return 0;
+}
+
 void *ca8210_io_worker(void *arg)
 {
 	struct ca821x_dev *pDeviceRef = arg;
@@ -176,6 +189,10 @@ void *ca8210_io_worker(void *arg)
 				                     &dd_cond, buffer, len, pDeviceRef);
 			}
 		}
+		else if (len < 0)
+		{
+			exchange_handle_error(len, priv);
+		}
 
 		//Send any queued messages
 		len = pop_from_queue(&(priv->out_buffer_queue),
@@ -188,14 +205,7 @@ void *ca8210_io_worker(void *arg)
 			error = priv->write_func(buffer, len, pDeviceRef);
 			if (error < 0)
 			{
-				if (priv->error_callback)
-				{
-					priv->error_callback(error);
-				}
-				else
-				{
-					abort();
-				}
+				exchange_handle_error(error, priv);
 			}
 		}
 
