@@ -49,6 +49,7 @@ int init_generic_statics();
 int deinit_generic_statics();
 int exchange_register_user_callback(exchange_user_callback callback,
                                     struct ca821x_dev *pDeviceRef);
+int exchange_handle_error(int error, struct ca821x_exchange_base *priv);
 void *ca8210_io_worker(void *arg);
 
 #endif
