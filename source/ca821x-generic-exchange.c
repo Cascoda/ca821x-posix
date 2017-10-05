@@ -186,7 +186,8 @@ void *ca8210_io_worker(void *arg)
 				//Add to queue for dispatching downstream
 				add_to_waiting_queue(&downstream_dispatch_queue,
 				                     &downstream_queue_mutex,
-				                     &dd_cond, buffer, len, pDeviceRef);
+				                     &dd_cond,
+				                     buffer, len, pDeviceRef);
 			}
 		}
 		else if (len < 0)
