@@ -12,7 +12,7 @@ all: default
 
 INCLUDES = $(foreach dir, $(INCLUDEDIRS), -I$(dir))
 OBJECTS = $(patsubst %.c, %.o, $(wildcard $(addsuffix *.c,$(SOURCEDIRS))))
-HEADERS = $(wildcard $(INCLUDEDIR),*.h)
+HEADERS = $(wildcard $(addsuffix *.h,$(INCLUDEDIRS)))
 
 %.o: %.c $(HEADERS) subdirs
 	$(CC) $(CFLAGS) -c $< -o $@ $(INCLUDES)
