@@ -71,7 +71,6 @@ static int ca8210_test_int_exchange(
 /******************************************************************************/
 
 static int DriverFileDescriptor, DriverFDPipe[2];
-static pthread_mutex_t rx_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t tx_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t buf_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t unhandled_sync_cond = PTHREAD_COND_INITIALIZER;
@@ -251,7 +250,6 @@ void kernel_exchange_deinit(struct ca821x_dev *pDeviceRef){
 
 	//Lock all mutexes
 	pthread_mutex_lock(&tx_mutex);
-	pthread_mutex_lock(&rx_mutex);
 	pthread_mutex_lock(&buf_queue_mutex);
 
 	//close the driver file
@@ -264,7 +262,6 @@ void kernel_exchange_deinit(struct ca821x_dev *pDeviceRef){
 
 	//unlock all mutexes
 	pthread_mutex_unlock(&buf_queue_mutex);
-	pthread_mutex_unlock(&rx_mutex);
 	pthread_mutex_unlock(&tx_mutex);
 }
 
