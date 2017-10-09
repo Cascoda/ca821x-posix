@@ -243,7 +243,8 @@ int ca8210_exchange_commands(
 	             buf,
 	             len,
 	             pDeviceRef);
-	wake_hw_worker();
+	if (wake_hw_worker)
+		wake_hw_worker();
 
 
 	if (!isSynchronous) return 0;
