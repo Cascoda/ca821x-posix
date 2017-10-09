@@ -32,6 +32,7 @@
 #include <pthread.h>
 #include <stdint.h>
 #include <unistd.h>
+#include <assert.h>
 
 #include "ca821x-generic-exchange.h"
 #include "ca821x-queue.h"
@@ -46,6 +47,8 @@ struct buffer_queue *downstream_dispatch_queue = NULL;
 pthread_mutex_t downstream_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t dd_thread;
 pthread_cond_t dd_cond = PTHREAD_COND_INITIALIZER;
+
+void (*wake_hw_worker)(void);
 
 static void *ca821x_downstream_dispatch_worker(void *arg)
 {
@@ -94,6 +97,7 @@ int init_generic_statics()
 	if (s_generic_initialised) goto exit;
 
 	s_worker_run_flag = 1;
+	wake_hw_worker = NULL;
 	rval = pthread_create(&dd_thread, NULL, &ca821x_downstream_dispatch_worker,
 	                      NULL);
 	if (rval != 0)
@@ -214,5 +218,45 @@ void *ca8210_io_worker(void *arg)
 	}
 
 	pthread_mutex_unlock(&flag_mutex);
+	return 0;
+}
+
+int ca8210_exchange_commands(
+                             const uint8_t *buf,
+                             size_t len,
+                             uint8_t *response,
+                             struct ca821x_dev *pDeviceRef)
+{
+	const uint8_t isSynchronous = ((buf[0] & SPI_SYN) && response);
+	struct ca821x_exchange_base *priv = pDeviceRef->exchange_context;
+	struct ca821x_dev *ref_out;
+
+	if (!s_generic_initialised) return -1;
+	//Synchronous must execute synchronously
+	//Get sync responses from the in queue
+	//Send messages by adding them to the out queue
+
+	if (isSynchronous) pthread_mutex_lock(&(priv->sync_mutex));
+
+	add_to_queue(&(priv->out_buffer_queue),
+	             &(priv->out_queue_mutex),
+	             buf,
+	             len,
+	             pDeviceRef);
+	wake_hw_worker();
+
+
+	if (!isSynchronous) return 0;
+
+	wait_on_queue(&(priv->in_buffer_queue), &(priv->in_queue_mutex),
+	              &(priv->sync_cond));
+
+	pop_from_queue(&(priv->in_buffer_queue), &(priv->in_queue_mutex), response,
+	               sizeof(struct MAC_Message),
+	               &ref_out);
+
+	assert(ref_out == pDeviceRef);
+	pthread_mutex_unlock(&(priv->sync_mutex));
+
 	return 0;
 }

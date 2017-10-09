@@ -45,11 +45,17 @@ extern struct buffer_queue *downstream_dispatch_queue;
 extern pthread_mutex_t downstream_queue_mutex;
 extern pthread_cond_t dd_cond;
 
+extern void (*wake_hw_worker)(void);
+
 int init_generic_statics();
 int deinit_generic_statics();
 int exchange_register_user_callback(exchange_user_callback callback,
                                     struct ca821x_dev *pDeviceRef);
 int exchange_handle_error(int error, struct ca821x_exchange_base *priv);
 void *ca8210_io_worker(void *arg);
+int ca8210_exchange_commands(const uint8_t *buf,
+                             size_t len,
+                             uint8_t *response,
+                             struct ca821x_dev *pDeviceRef);
 
 #endif

@@ -61,20 +61,9 @@
 
 /******************************************************************************/
 
-static int ca8210_test_int_exchange(
-	const uint8_t *buf,
-	size_t len,
-	uint8_t *response,
-	struct ca821x_dev *pDeviceRef
-);
-
-/******************************************************************************/
-
 static int DriverFileDescriptor, DriverFDPipe[2];
 static pthread_mutex_t tx_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t buf_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t unhandled_sync_cond = PTHREAD_COND_INITIALIZER;
-static int unhandled_sync_count = 0;
 static int s_initialised = 0;
 static fd_set rx_block_fd_set;
 
@@ -150,6 +139,12 @@ void flush_unread_ke(struct ca821x_dev *pDeviceRef)
 	} while (rval > 0);
 }
 
+void unblock_read(void)
+{
+	const uint8_t dummybyte = 0;
+	write(DriverFDPipe[1], &dummybyte, 1);
+}
+
 static int init_statics()
 {
 	int error = 0;
@@ -159,6 +154,7 @@ static int init_statics()
 	error = init_generic_statics();
 	if (error) goto exit;
 
+	wake_hw_worker = unblock_read;
 	s_initialised = 1;
 
 exit:
@@ -215,8 +211,6 @@ int kernel_exchange_init_withhandler(ca821x_errorhandler callback,
 	pthread_mutex_init(&(priv->base.out_queue_mutex), NULL);
 	pthread_cond_init(&(priv->base.sync_cond), NULL);
 
-	unhandled_sync_count = 0;
-
 	pthread_mutex_lock(&flag_mutex);
 	priv->base.io_thread_runflag = 1;
 	pthread_mutex_unlock(&flag_mutex);
@@ -232,7 +226,7 @@ int kernel_exchange_init_withhandler(ca821x_errorhandler callback,
 		goto exit;
 	}
 
-	pDeviceRef->ca821x_api_downstream = ca8210_test_int_exchange;
+	pDeviceRef->ca821x_api_downstream = ca8210_exchange_commands;
 
 exit:
 	if (error && pDeviceRef->exchange_context)
@@ -268,50 +262,4 @@ void kernel_exchange_deinit(struct ca821x_dev *pDeviceRef){
 int kernel_exchange_reset(unsigned long resettime, struct ca821x_dev *pDeviceRef)
 {
 	return ioctl(DriverFileDescriptor, CA8210_IOCTL_HARD_RESET, resettime);
-}
-
-static int ca8210_test_int_exchange(
-	const uint8_t *buf,
-	size_t len,
-	uint8_t *response,
-	struct ca821x_dev *pDeviceRef
-)
-{
-	const uint8_t isSynchronous = ((buf[0] & SPI_SYN) && response);
-	struct kernel_exchange_priv *priv = pDeviceRef->exchange_context;
-	struct ca821x_dev *ref_out;
-	const uint8_t dummybyte = 0;
-
-	if (!s_initialised) return -1;
-
-	if(isSynchronous){
-		pthread_mutex_lock(&(priv->base.sync_mutex));	//Enforce synchronous write then read
-		while(unhandled_sync_count != 0) {pthread_cond_wait(&unhandled_sync_cond, &(priv->base.sync_mutex));}
-	}
-	else if(buf[0] & SPI_SYN){
-		pthread_mutex_lock(&(priv->base.sync_mutex));
-		unhandled_sync_count++;
-		pthread_mutex_unlock(&(priv->base.sync_mutex));
-	}
-
-	add_to_queue(&(priv->base.out_buffer_queue),
-	             &(priv->base.out_queue_mutex),
-	             buf,
-	             len,
-	             pDeviceRef);
-	write(DriverFDPipe[1], &dummybyte, 1);
-
-	if (!isSynchronous) return 0;
-
-	wait_on_queue(&(priv->base.in_buffer_queue), &(priv->base.in_queue_mutex),
-	              &(priv->base.sync_cond));
-
-	pop_from_queue(&(priv->base.in_buffer_queue), &(priv->base.in_queue_mutex), response,
-	               sizeof(struct MAC_Message),
-	               &ref_out);
-
-	assert(ref_out == pDeviceRef);
-	pthread_mutex_unlock(&(priv->base.sync_mutex));
-
-	return 0;
 }

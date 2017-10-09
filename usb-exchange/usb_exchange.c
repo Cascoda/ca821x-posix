@@ -81,11 +81,6 @@ static int (*dhid_write)(hid_device *, const unsigned char *, size_t);
 static pthread_mutex_t devs_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t devs_cond = PTHREAD_COND_INITIALIZER;
 
-static int ca8210_test_int_exchange(const uint8_t *buf,
-                                    size_t len,
-                                    uint8_t *response,
-                                    struct ca821x_dev *pDeviceRef);
-
 //returns 1 for non-final fragment, 0 for final
 static int get_next_frag(const uint8_t *buf_in, uint8_t len_in, uint8_t *frag_out,
                          uint8_t *offset)
@@ -411,7 +406,7 @@ int usb_exchange_init_withhandler(ca821x_errorhandler callback,
 		goto exit;
 	}
 
-	pDeviceRef->ca821x_api_downstream = ca8210_test_int_exchange;
+	pDeviceRef->ca821x_api_downstream = ca8210_exchange_commands;
 
 	//Add the new device to the device list for io
 	s_devcount++;
@@ -487,43 +482,5 @@ int usb_exchange_user_send(const uint8_t *buf, size_t len,
 	             buf,
 	             len,
 	             pDeviceRef);
-	return 0;
-}
-
-static int ca8210_test_int_exchange(
-                                    const uint8_t *buf,
-                                    size_t len,
-                                    uint8_t *response,
-                                    struct ca821x_dev *pDeviceRef)
-{
-	const uint8_t isSynchronous = ((buf[0] & SPI_SYN) && response);
-	struct usb_exchange_priv *priv = pDeviceRef->exchange_context;
-	struct ca821x_dev *ref_out;
-
-	if (!s_initialised) return -1;
-	//Synchronous must execute synchronously
-	//Get sync responses from the in queue
-	//Send messages by adding them to the out queue
-
-	if (isSynchronous) pthread_mutex_lock(&(priv->base.sync_mutex));
-
-	add_to_queue(&(priv->base.out_buffer_queue),
-	             &(priv->base.out_queue_mutex),
-	             buf,
-	             len,
-	             pDeviceRef);
-
-	if (!isSynchronous) return 0;
-
-	wait_on_queue(&(priv->base.in_buffer_queue), &(priv->base.in_queue_mutex),
-	              &(priv->base.sync_cond));
-
-	pop_from_queue(&(priv->base.in_buffer_queue), &(priv->base.in_queue_mutex), response,
-	               sizeof(struct MAC_Message),
-	               &ref_out);
-
-	assert(ref_out == pDeviceRef);
-	pthread_mutex_unlock(&(priv->base.sync_mutex));
-
 	return 0;
 }
