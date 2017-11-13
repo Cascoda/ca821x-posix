@@ -14,12 +14,12 @@ INCLUDES = $(foreach dir, $(INCLUDEDIRS), -I$(dir))
 OBJECTS = $(patsubst %.c, %.o, $(wildcard $(addsuffix *.c,$(SOURCEDIRS))))
 HEADERS = $(wildcard $(addsuffix *.h,$(INCLUDEDIRS)))
 
-%.o: %.c $(HEADERS) subdirs
+%.o: %.c $(HEADERS)
 	$(CC) $(CFLAGS) -c $< -o $@ $(INCLUDES)
 
 .PRECIOUS: $(TARGET) $(OBJECTS)
 
-$(TARGET): $(OBJECTS)
+$(TARGET): $(OBJECTS) subdirs
 	cp ca821x-api/libca821x.a ./libca821x.a
 	$(AR) -x libca821x.a
 	$(AR) rcs $(TARGET) $(OBJECTS)
