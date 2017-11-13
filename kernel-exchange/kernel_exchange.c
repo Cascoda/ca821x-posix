@@ -123,6 +123,9 @@ ssize_t kernel_exchange_try_read(struct ca821x_dev *pDeviceRef,
 	{
 		uint8_t dummybyte = 0;
 
+		FD_ZERO(&rx_block_fd_set);
+		FD_SET(DriverFileDescriptor, &rx_block_fd_set);
+		FD_SET(DriverFDPipe[0], &rx_block_fd_set);
 		timeout.tv_sec = POLL_DELAY;
 		timeout.tv_usec = 0;
 		select(DriverFDPipe[0] + 1, &rx_block_fd_set, NULL, NULL, &timeout);
@@ -198,9 +201,6 @@ int kernel_exchange_init_withhandler(ca821x_errorhandler callback,
 
 	pipe(DriverFDPipe);
 	fcntl(DriverFDPipe[0], F_SETFL, O_NONBLOCK);
-	FD_ZERO(&rx_block_fd_set);
-	FD_SET(DriverFileDescriptor, &rx_block_fd_set);
-	FD_SET(DriverFDPipe[0], &rx_block_fd_set);
 
 	pDeviceRef->exchange_context = calloc(1, sizeof(struct kernel_exchange_priv));
 	priv = pDeviceRef->exchange_context;
