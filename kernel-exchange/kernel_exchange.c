@@ -143,7 +143,7 @@ void flush_unread_ke(struct ca821x_dev *pDeviceRef)
 	} while (rval > 0);
 }
 
-void unblock_read(void)
+void unblock_read(struct ca821x_dev *pDeviceRef)
 {
 	const uint8_t dummybyte = 0;
 	write(DriverFDPipe[1], &dummybyte, 1);
@@ -158,7 +158,6 @@ static int init_statics()
 	error = init_generic_statics();
 	if (error) goto exit;
 
-	wake_hw_worker = unblock_read;
 	s_initialised = 1;
 
 exit:
@@ -208,6 +207,7 @@ int kernel_exchange_init_withhandler(ca821x_errorhandler callback,
 	priv->base.exchange_type = ca821x_exchange_kernel;
 	priv->base.error_callback = callback;
 	priv->base.write_func = ca8210_test_int_write;
+	priv->base.signal_func = unblock_read;
 	priv->base.read_func = kernel_exchange_try_read;
 	priv->base.flush_func = flush_unread_ke;
 

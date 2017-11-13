@@ -35,14 +35,63 @@ typedef int (*exchange_user_callback)(
 	const uint8_t *buf, size_t len, void *pDeviceRef
 );
 
+/* \brief Exchange write function
+ *
+ * Function for the exchange to implement. The implementation should
+ * send the data in 'buf' to the ca821x.
+ *
+ * \param buf buffer containing the message to send to the ca821x
+ * \paran len length of the buffer data
+ * \param pDeviceRef a Pointer to the relevant pDeviceRef struct
+ *
+ */
 typedef int (*exchange_write)(
 	const uint8_t *buf, size_t len, struct ca821x_dev *pDeviceRef
 );
 
+/* \brief Exchange read function
+ *
+ * Function for the exchange to implement. The implementation should
+ * read from the ca821x and copy the data into buf. This function
+ * should block as necessary to reduce CPU load (although returning
+ * a length of zero is still functionally correct).
+ *
+ * If the function does block, it must be able to be woken by a call
+ * to the associated exchange_signal_read implementation.
+ *
+ * \param buf buffer containing the message read from the ca821x
+ * \param pDeviceRef a Pointer to the relevant pDeviceRef struct
+ *
+ * \returns the length of the returned data
+ */
 typedef ssize_t (*exchange_read)(
 	struct ca821x_dev *pDeviceRef, uint8_t *buf
 );
 
+/* \brief Exchange signalling function to trigger read return
+ *
+ * Function for the exchange to implement. The implementation should
+ * cause the associated exchange_read function to stop blocking and
+ * return.
+ *
+ * \param pDeviceRef a Pointer to the relevant pDeviceRef struct
+ *
+ */
+typedef void (*exchange_signal_read)(
+		struct ca821x_dev *pDeviceRef
+);
+
+/* \brief Exchange signalling function to flush external buffers
+ *
+ * Function for the exchange to implement. The implementation should
+ * clear all external buffers, discarding any messages that were left
+ * behind from past executions.
+ *
+ * This function will be called when the device is opened.
+ *
+ * \param pDeviceRef a Pointer to the relevant pDeviceRef struct
+ *
+ */
 typedef void (*exchange_flush_unread)(
 	struct ca821x_dev *pDeviceRef
 );
@@ -60,6 +109,7 @@ struct ca821x_exchange_base {
 	ca821x_errorhandler error_callback;
 	exchange_user_callback user_callback;
 	exchange_write write_func;
+	exchange_signal_read signal_func;
 	exchange_read read_func;
 	exchange_flush_unread flush_func;
 

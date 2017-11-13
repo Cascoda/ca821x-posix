@@ -45,8 +45,6 @@ extern struct buffer_queue *downstream_dispatch_queue;
 extern pthread_mutex_t downstream_queue_mutex;
 extern pthread_cond_t dd_cond;
 
-extern void (*wake_hw_worker)(void);
-
 int init_generic_statics();
 int deinit_generic_statics();
 int exchange_register_user_callback(exchange_user_callback callback,

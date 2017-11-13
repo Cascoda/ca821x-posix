@@ -97,7 +97,6 @@ int init_generic_statics()
 	if (s_generic_initialised) goto exit;
 
 	s_worker_run_flag = 1;
-	wake_hw_worker = NULL;
 	rval = pthread_create(&dd_thread, NULL, &ca821x_downstream_dispatch_worker,
 	                      NULL);
 
@@ -245,8 +244,8 @@ int ca8210_exchange_commands(
 	             len,
 	             pDeviceRef);
 
-	if (wake_hw_worker)
-		wake_hw_worker();
+	if (priv->signal_func)
+		priv->signal_func(pDeviceRef);
 
 	if (!isSynchronous) return 0;
 
