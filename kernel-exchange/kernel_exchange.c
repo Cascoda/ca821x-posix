@@ -121,9 +121,12 @@ ssize_t kernel_exchange_try_read(struct ca821x_dev *pDeviceRef,
 
 	if (!peek_queue(priv->base.out_buffer_queue, &(priv->base.out_queue_mutex)))
 	{
+		uint8_t dummybyte = 0;
+
 		timeout.tv_sec = POLL_DELAY;
 		timeout.tv_usec = 0;
 		select(DriverFDPipe[0] + 1, &rx_block_fd_set, NULL, NULL, &timeout);
+		read(DriverFDPipe[0], dummybyte, 1);
 	}
 
 	//Read from the device if possible
@@ -194,7 +197,7 @@ int kernel_exchange_init_withhandler(ca821x_errorhandler callback,
 		return -1;
 	}
 
-	pipe(DriverFDPipe);
+	pipe2(DriverFDPipe, O_NONBLOCK);
 	FD_ZERO(&rx_block_fd_set);
 	FD_SET(DriverFileDescriptor, &rx_block_fd_set);
 	FD_SET(DriverFDPipe[0], &rx_block_fd_set);
