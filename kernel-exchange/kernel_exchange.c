@@ -63,7 +63,6 @@
 
 static int DriverFileDescriptor, DriverFDPipe[2];
 static pthread_mutex_t tx_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_mutex_t buf_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int s_initialised = 0;
 static fd_set rx_block_fd_set;
 
@@ -80,11 +79,13 @@ static int ca8210_test_int_write(const uint8_t *buf,
                                  size_t len,
                                  struct ca821x_dev *pDeviceRef)
 {
-	int returnvalue, remaining = len;
+	int remaining = len;
 	int attempts = 0;
 
 	pthread_mutex_lock(&tx_mutex);
 	do {
+		int returnvalue;
+
 		returnvalue = write(DriverFileDescriptor, buf+len-remaining, remaining);
 		if (returnvalue > 0)
 			remaining -= returnvalue;
@@ -244,7 +245,6 @@ void kernel_exchange_deinit(struct ca821x_dev *pDeviceRef){
 
 	//Lock all mutexes
 	pthread_mutex_lock(&tx_mutex);
-	pthread_mutex_lock(&buf_queue_mutex);
 
 	//close the driver file
 	do{
@@ -255,7 +255,6 @@ void kernel_exchange_deinit(struct ca821x_dev *pDeviceRef){
 	pDeviceRef->exchange_context = NULL;
 
 	//unlock all mutexes
-	pthread_mutex_unlock(&buf_queue_mutex);
 	pthread_mutex_unlock(&tx_mutex);
 }
 
