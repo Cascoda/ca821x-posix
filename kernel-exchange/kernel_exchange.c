@@ -45,198 +45,47 @@
 #include <sys/ioctl.h>
 
 #include "kernel_exchange.h"
+#include "ca821x-queue.h"
+#include "ca821x-generic-exchange.h"
 
 /******************************************************************************/
 
 #define DebugFSMount            "/sys/kernel/debug"
 #define DriverNode              "/ca8210"
-#define DriverFilePath 			(DebugFSMount DriverNode)
+#define DriverFilePath          (DebugFSMount DriverNode)
 
 #define CA8210_IOCTL_HARD_RESET (0)
 
-/******************************************************************************/
-
-static int ca8210_test_int_exchange(
-	const uint8_t *buf,
-	size_t len,
-	uint8_t *response,
-	struct ca821x_dev *pDeviceRef
-);
+/** Max time to wait on rx data in seconds */
+#define POLL_DELAY 1
 
 /******************************************************************************/
 
-static int DriverFileDescriptor;
-static pthread_t rx_thread;
-static pthread_mutex_t flag_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_mutex_t rx_mutex = PTHREAD_MUTEX_INITIALIZER;
+static int DriverFileDescriptor, DriverFDPipe[2];
 static pthread_mutex_t tx_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_mutex_t buf_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t unhandled_sync_cond = PTHREAD_COND_INITIALIZER;
-static int unhandled_sync_count = 0;
-static uint8_t worker_flag = 0;
-static uint8_t initialised = 0;
+static int s_initialised = 0;
 static fd_set rx_block_fd_set;
 
-static struct ca821x_dev *s_pDeviceRef = NULL;
-
-static ca821x_errorhandler errorcallback;
-
 /******************************************************************************/
 
-struct buffer_queue{
-	size_t len;
-	uint8_t * buf;
-	struct buffer_queue * next;
+struct kernel_exchange_priv
+{
+	struct ca821x_exchange_base base;
 };
 
-static struct buffer_queue * head_buffer_queue = NULL;
-
-//Add a buffer to the FIFO queue - this is a blocking function
-static void add_to_queue(const uint8_t *buf, size_t len);
-
-//Retrieve a buffer into destBuf - this is a nonblocking function and will return 0 if nothing is retrieved from the queue
-static size_t pop_from_queue(uint8_t * destBuf, size_t maxlen);
-
 /******************************************************************************/
 
-static void *ca8210_test_int_read_worker(void *arg)
+static int ca8210_test_int_write(const uint8_t *buf,
+                                 size_t len,
+                                 struct ca821x_dev *pDeviceRef)
 {
-	uint8_t rx_buf[512];
-	size_t rx_len;
-	struct timeval timeout;
-
-	pthread_mutex_lock(&flag_mutex);
-	while (worker_flag) {
-		pthread_mutex_unlock(&flag_mutex);
-
-		rx_len = 0;
-
-		FD_ZERO(&rx_block_fd_set);
-		FD_SET(DriverFileDescriptor, &rx_block_fd_set);
-
-		timeout.tv_sec = 1;
-		timeout.tv_usec = 0;
-		//Wait until there is data available to read (or time out after 1 second)
-		select(DriverFileDescriptor + 1, &rx_block_fd_set, NULL, NULL, &timeout);
-
-		//try to get fresh data
-		if(pthread_mutex_trylock(&rx_mutex) == 0){
-			rx_len = read(DriverFileDescriptor, rx_buf, 0);
-
-			if(rx_len > 0 && (rx_buf[0] & SPI_SYN)){	//Catch unhandled synchronous commands so synchronicity for future commands is not lost
-				unhandled_sync_count--;
-				assert(unhandled_sync_count >= 0);
-				pthread_cond_signal(&unhandled_sync_cond);
-			}
-
-			pthread_mutex_unlock(&rx_mutex);
-		}
-
-		//If nothing was received this cycle, get something from the queue
-		if(rx_len == 0){
-			rx_len = pop_from_queue(rx_buf, 512);
-		}
-
-		if (rx_len > 0) {
-			ca821x_downstream_dispatch(rx_buf, rx_len, s_pDeviceRef);
-		}
-		pthread_mutex_lock(&flag_mutex);
-	}
-
-	return NULL;
-}
-
-int kernel_exchange_init(struct ca821x_dev *pDeviceRef){
-	return kernel_exchange_init_withhandler(NULL, pDeviceRef);
-}
-
-int kernel_exchange_init_withhandler(ca821x_errorhandler callback,
-                                     struct ca821x_dev *pDeviceRef)
-{
-	int ret;
-
-	if(pDeviceRef->exchange_context) return 1;
-	if(initialised) return -1; //Initialised but not for this pDeviceRef
-
-	errorcallback = callback;
-	
-	DriverFileDescriptor = open(DriverFilePath, O_RDWR | O_NONBLOCK);
-
-	if (DriverFileDescriptor == -1) {
-		return -1;
-	}
-
-	pDeviceRef->ca821x_api_downstream = ca8210_test_int_exchange;
-
-	//Empty the receive buffer for clean start
-	pthread_mutex_lock(&rx_mutex);
-	size_t rx_len;
-	do{
-		uint8_t scrap[512];
-		rx_len = read(DriverFileDescriptor, scrap, 0);
-	} while (rx_len != 0);
-	pthread_mutex_unlock(&rx_mutex);
-
-	unhandled_sync_count = 0;
-
-	pthread_mutex_lock(&flag_mutex);
-	worker_flag = 1;
-	pthread_mutex_unlock(&flag_mutex);
-
-	ret = pthread_create(&rx_thread, NULL, ca8210_test_int_read_worker, NULL);
-
-	if(ret == 0)
-	{
-		struct ca821x_exchange_base *base;
-		initialised = 1;
-		pDeviceRef->exchange_context = malloc(sizeof(struct ca821x_exchange_base));
-		base = pDeviceRef->exchange_context;
-		base->exchange_type = ca821x_exchange_kernel;
-		s_pDeviceRef = pDeviceRef;
-	}
-	return ret;
-}
-
-void kernel_exchange_deinit(struct ca821x_dev *pDeviceRef){
-	int ret;
-
-	//Cause the worker thread to terminate
-	pthread_mutex_lock(&flag_mutex);
-	worker_flag = 0;
-	pthread_mutex_unlock(&flag_mutex);
-
-	//Lock all mutexes
-	pthread_mutex_lock(&tx_mutex);
-	pthread_mutex_lock(&rx_mutex);
-	pthread_mutex_lock(&buf_queue_mutex);
-
-	//close the driver file
-	do{
-		ret = close(DriverFileDescriptor);
-	} while(ret < 0 && errno == EINTR);
-	initialised = 0;
-	free(pDeviceRef->exchange_context);
-	pDeviceRef->exchange_context = NULL;
-	s_pDeviceRef = NULL;
-
-	//unlock all mutexes
-	pthread_mutex_unlock(&buf_queue_mutex);
-	pthread_mutex_unlock(&rx_mutex);
-	pthread_mutex_unlock(&tx_mutex);
-}
-
-int kernel_exchange_reset(unsigned long resettime, struct ca821x_dev *pDeviceRef)
-{
-	return ioctl(DriverFileDescriptor, CA8210_IOCTL_HARD_RESET, resettime);
-}
-
-static int ca8210_test_int_write(const uint8_t *buf, size_t len)
-{
-	int returnvalue, remaining = len;
+	int remaining = len;
 	int attempts = 0;
 
 	pthread_mutex_lock(&tx_mutex);
 	do {
+		int returnvalue;
+
 		returnvalue = write(DriverFileDescriptor, buf+len-remaining, remaining);
 		if (returnvalue > 0)
 			remaining -= returnvalue;
@@ -264,112 +113,156 @@ static int ca8210_test_int_write(const uint8_t *buf, size_t len)
 	return 0;
 }
 
-static int ca8210_test_int_exchange(
-	const uint8_t *buf,
-	size_t len,
-	uint8_t *response,
-	struct ca821x_dev *pDeviceRef
-)
+ssize_t kernel_exchange_try_read(struct ca821x_dev *pDeviceRef,
+                                 uint8_t *buf)
 {
-	int Rx_Length, error;
-	const uint8_t isSynchronous = ((buf[0] & SPI_SYN) && response);
+	struct kernel_exchange_priv *priv = pDeviceRef->exchange_context;
+	struct timeval timeout;
 
-	if(isSynchronous){
-		pthread_mutex_lock(&rx_mutex);	//Enforce synchronous write then read
-		while(unhandled_sync_count != 0) {pthread_cond_wait(&unhandled_sync_cond, &rx_mutex);}
+	if (!peek_queue(priv->base.out_buffer_queue, &(priv->base.out_queue_mutex)))
+	{
+		uint8_t dummybyte = 0;
+
+		FD_ZERO(&rx_block_fd_set);
+		FD_SET(DriverFileDescriptor, &rx_block_fd_set);
+		FD_SET(DriverFDPipe[0], &rx_block_fd_set);
+		timeout.tv_sec = POLL_DELAY;
+		timeout.tv_usec = 0;
+		select(DriverFDPipe[0] + 1, &rx_block_fd_set, NULL, NULL, &timeout);
+		read(DriverFDPipe[0], &dummybyte, 1);
 	}
-	else if(buf[0] & SPI_SYN){
-		pthread_mutex_lock(&rx_mutex);
-		unhandled_sync_count++;
-		pthread_mutex_unlock(&rx_mutex);
+
+	//Read from the device if possible
+	return read(DriverFileDescriptor, buf, 0);
+}
+
+void flush_unread_ke(struct ca821x_dev *pDeviceRef)
+{
+	uint8_t buffer[MAX_BUF_SIZE];
+	ssize_t rval;
+	do
+	{
+		rval = read(DriverFileDescriptor, buffer, 0);
+	} while (rval > 0);
+}
+
+void unblock_read(struct ca821x_dev *pDeviceRef)
+{
+	const uint8_t dummybyte = 0;
+	write(DriverFDPipe[1], &dummybyte, 1);
+}
+
+static int init_statics()
+{
+	int error = 0;
+
+	DriverFileDescriptor = -1;
+
+	error = init_generic_statics();
+	if (error) goto exit;
+
+	s_initialised = 1;
+
+exit:
+	return error;
+}
+
+static int deinit_statics()
+{
+	s_initialised = 0;
+	return deinit_generic_statics();
+}
+
+int kernel_exchange_init(struct ca821x_dev *pDeviceRef){
+	return kernel_exchange_init_withhandler(NULL, pDeviceRef);
+}
+
+int kernel_exchange_init_withhandler(ca821x_errorhandler callback,
+                                     struct ca821x_dev *pDeviceRef)
+{
+	int error;
+	struct kernel_exchange_priv *priv = NULL;
+
+	if (!s_initialised)
+	{
+		error = init_statics();
+		if (error) return error;
 	}
 
-	error = ca8210_test_int_write(buf, len);
-	if(error){
-		//Revert all state changes and release mutexes
-		if(isSynchronous)pthread_mutex_unlock(&rx_mutex);
-		else if(buf[0] & SPI_SYN){
-			pthread_mutex_lock(&rx_mutex);
-			unhandled_sync_count--;
-			pthread_mutex_unlock(&rx_mutex);
-		}
+	if(pDeviceRef->exchange_context) return 1;
 
-		//Call the errorcallback or crash the program
-		if(errorcallback) errorcallback(error);
-		else abort();
+	if (DriverFileDescriptor != -1) return 1;
 
-		//Return a failure to the next highest layer
+	DriverFileDescriptor = open(DriverFilePath, O_RDWR | O_NONBLOCK);
+
+	if (DriverFileDescriptor == -1) {
 		return -1;
 	}
 
-	if (isSynchronous) {
-		do {
-			Rx_Length = read(DriverFileDescriptor, response, (size_t) 0);
+	pipe(DriverFDPipe);
+	fcntl(DriverFDPipe[0], F_SETFL, O_NONBLOCK);
 
-			if(Rx_Length > 0 && !(response[0] & SPI_SYN)){
-				//Unexpected asynchronous response
-				add_to_queue(response, Rx_Length);
-				Rx_Length = 0;
-			}
+	pDeviceRef->exchange_context = calloc(1, sizeof(struct kernel_exchange_priv));
+	priv = pDeviceRef->exchange_context;
+	priv->base.exchange_type = ca821x_exchange_kernel;
+	priv->base.error_callback = callback;
+	priv->base.write_func = ca8210_test_int_write;
+	priv->base.signal_func = unblock_read;
+	priv->base.read_func = kernel_exchange_try_read;
+	priv->base.flush_func = flush_unread_ke;
 
-		} while (Rx_Length == 0);
-		pthread_mutex_unlock(&rx_mutex);
-	}
+	pthread_mutex_init(&(priv->base.sync_mutex), NULL);
+	pthread_mutex_init(&(priv->base.in_queue_mutex), NULL);
+	pthread_mutex_init(&(priv->base.out_queue_mutex), NULL);
+	pthread_cond_init(&(priv->base.sync_cond), NULL);
 
+	pthread_mutex_lock(&flag_mutex);
+	priv->base.io_thread_runflag = 1;
+	pthread_mutex_unlock(&flag_mutex);
 
-	return 0;
-}
+	error = pthread_create(&(priv->base.io_thread),
+	                       NULL,
+	                       &ca8210_io_worker,
+	                       pDeviceRef);
 
-static void add_to_queue(const uint8_t *buf, size_t len){
-	pthread_mutex_lock(&buf_queue_mutex);
+	if (error != 0)
 	{
-		struct buffer_queue * nextbuf = head_buffer_queue;
-		if(nextbuf == NULL){
-			//queue empty -> start new queue
-			head_buffer_queue = malloc(sizeof(struct buffer_queue));
-			memset(head_buffer_queue, 0, sizeof(struct buffer_queue));
-			nextbuf = head_buffer_queue;
-		}
-		else{
-			while(nextbuf->next != NULL){
-				nextbuf = nextbuf->next;
-			}
-			//allocate new buffer cell
-			nextbuf->next = malloc(sizeof(struct buffer_queue));
-			memset(nextbuf->next, 0, sizeof(struct buffer_queue));
-			nextbuf = nextbuf->next;
-		}
-
-		nextbuf->len = len;
-		nextbuf->buf = malloc(len);
-		memcpy(nextbuf->buf, buf, len);
-
+		error = -1;
+		goto exit;
 	}
-	pthread_mutex_unlock(&buf_queue_mutex);
+
+	pDeviceRef->ca821x_api_downstream = ca8210_exchange_commands;
+
+exit:
+	if (error && pDeviceRef->exchange_context)
+	{
+		free(pDeviceRef->exchange_context);
+		pDeviceRef->exchange_context = NULL;
+	}
+	return error;
 }
 
-static size_t pop_from_queue(uint8_t * destBuf, size_t maxlen){
+void kernel_exchange_deinit(struct ca821x_dev *pDeviceRef){
+	int ret;
 
-	if(pthread_mutex_trylock(&buf_queue_mutex) == 0){
+	deinit_statics();
 
-		struct buffer_queue * current = head_buffer_queue;
-		size_t len = 0;
+	//Lock all mutexes
+	pthread_mutex_lock(&tx_mutex);
 
-		if(head_buffer_queue != NULL){
-			head_buffer_queue = current->next;
-			len = current->len;
+	//close the driver file
+	do{
+		ret = close(DriverFileDescriptor);
+	} while(ret < 0 && errno == EINTR);
+	s_initialised = 0;
+	free(pDeviceRef->exchange_context);
+	pDeviceRef->exchange_context = NULL;
 
-			if(len > maxlen) len = 0;
+	//unlock all mutexes
+	pthread_mutex_unlock(&tx_mutex);
+}
 
-			memcpy(destBuf, current->buf, len);
-
-			free(current->buf);
-			free(current);
-		}
-
-		pthread_mutex_unlock(&buf_queue_mutex);
-		return len;
-	}
-	return 0;
-
+int kernel_exchange_reset(unsigned long resettime, struct ca821x_dev *pDeviceRef)
+{
+	return ioctl(DriverFileDescriptor, CA8210_IOCTL_HARD_RESET, resettime);
 }

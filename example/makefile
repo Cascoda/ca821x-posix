@@ -2,7 +2,7 @@ TARGET_MAIN = app
 LIBDIRS = ../
 LIBSEARCH := $(addprefix -L,$(LIBDIRS))
 LIBS = -lm -lca821x -lstdc++ -lpthread -ldl
-INCLUDEDIRS := ./ ../ ../ca821x-api/include
+INCLUDEDIRS := ./ ../ ../ca821x-api/include ../include
 INCLUDEDIRCMD := $(addprefix -I,$(INCLUDEDIRS))
 CFLAGS := $(INCLUDEDIRCMD) -std=c99 -g -Wall -pthread
 

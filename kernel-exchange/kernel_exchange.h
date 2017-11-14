@@ -33,7 +33,7 @@
 #define KERNEL_EXCHANGE_H
 
 #include "ca821x_api.h"
-#include "../ca821x-types.h"
+#include "ca821x-types.h"
 
 /*
  * Must call ONE of the following functions in order to initialize driver communications
