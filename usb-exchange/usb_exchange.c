@@ -215,8 +215,13 @@ int usb_try_write(const uint8_t *buffer,
 
 	do
 	{
+		uint8_t retries = 0;
+
 		rval = get_next_frag(buffer, len, frag_buf, &offset);
-		error = dhid_write(priv->hid_dev, frag_buf, MAX_FRAG_SIZE + 1);
+		do
+		{
+			error = dhid_write(priv->hid_dev, frag_buf, MAX_FRAG_SIZE + 1);
+		} while ((error < 0) && (retries++ < 5));
 	} while (rval && (error >= 0));
 
 	if (error < 0)
