@@ -286,9 +286,6 @@ static int init_statics()
 	error = load_dlibs();
 	if(error) goto exit;
 
-	error = init_generic_statics();
-	if(error) goto exit;
-
 	s_initialised = 1;
 
 exit:
@@ -297,12 +294,7 @@ exit:
 
 static int deinit_statics()
 {
-
 	s_initialised = 0;
-
-	deinit_generic_statics();
-
-	//TODO: Should probably wait for the workers to actually complete here
 
 	dlclose(s_hid_lib_handle);
 	return 0;
@@ -392,26 +384,13 @@ int usb_exchange_init_withhandler(ca821x_errorhandler callback,
 	strncpy(priv->hid_path, hid_cur->path, len);
 	priv->hid_dev = dev;
 
-	pthread_mutex_init(&(priv->base.sync_mutex), NULL);
-	pthread_mutex_init(&(priv->base.in_queue_mutex), NULL);
-	pthread_mutex_init(&(priv->base.out_queue_mutex), NULL);
-	pthread_cond_init(&(priv->base.sync_cond), NULL);
+	error = init_generic(pDeviceRef);
 
-	pthread_mutex_lock(&flag_mutex);
-	priv->base.io_thread_runflag = 1;
-	pthread_mutex_unlock(&flag_mutex);
-
-	error = pthread_create(&(priv->base.io_thread),
-	                       NULL,
-	                       &ca8210_io_worker,
-	                       pDeviceRef);
 	if (error != 0)
 	{
 		error = -1;
 		goto exit;
 	}
-
-	pDeviceRef->ca821x_api_downstream = ca8210_exchange_commands;
 
 	//Add the new device to the device list for io
 	s_devcount++;
@@ -455,16 +434,8 @@ void usb_exchange_deinit(struct ca821x_dev *pDeviceRef)
 	}
 	pthread_mutex_unlock(&devs_mutex);
 
-	pthread_mutex_lock(&flag_mutex);
-	priv->base.io_thread_runflag = 0;
-	pthread_mutex_unlock(&flag_mutex);
+	deinit_generic(pDeviceRef);
 
-	//TODO: Wait for worker thread completion
-
-	pthread_mutex_destroy(&(priv->base.sync_mutex));
-	pthread_mutex_destroy(&(priv->base.in_queue_mutex));
-	pthread_cond_destroy(&(priv->base.sync_cond));
-	priv->base.error_callback = NULL;
 	free(priv->hid_path);
 	free(priv);
 	pDeviceRef->exchange_context = NULL;

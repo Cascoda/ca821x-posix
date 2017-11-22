@@ -116,6 +116,7 @@ struct ca821x_exchange_base {
 	//Synchronous queue
 	pthread_t io_thread;
 	int io_thread_runflag;
+	pthread_mutex_t flag_mutex;
 	pthread_cond_t sync_cond;
 	pthread_mutex_t sync_mutex;
 	//In queue = Device to host(us)

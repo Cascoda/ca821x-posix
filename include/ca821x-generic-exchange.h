@@ -36,17 +36,8 @@
 
 #define MAX_BUF_SIZE 189
 
-extern int s_worker_run_flag;
-extern int s_generic_initialised;
-
-extern pthread_mutex_t flag_mutex;
-
-extern struct buffer_queue *downstream_dispatch_queue;
-extern pthread_mutex_t downstream_queue_mutex;
-extern pthread_cond_t dd_cond;
-
-int init_generic_statics();
-int deinit_generic_statics();
+int init_generic(struct ca821x_dev *pDeviceRef);
+int deinit_generic(struct ca821x_dev *pDeviceRef);
 int exchange_register_user_callback(exchange_user_callback callback,
                                     struct ca821x_dev *pDeviceRef);
 int exchange_handle_error(int error, struct ca821x_exchange_base *priv);

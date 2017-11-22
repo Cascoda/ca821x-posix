@@ -81,20 +81,26 @@ static int ca8210_test_int_write(const uint8_t *buf,
 {
 	int remaining = len;
 	int attempts = 0;
+	int error = 0;
 
-	pthread_mutex_lock(&tx_mutex);
-	do {
+	do
+	{
 		int returnvalue;
 
 		returnvalue = write(DriverFileDescriptor, buf+len-remaining, remaining);
 		if (returnvalue > 0)
+		{
 			remaining -= returnvalue;
+		}
 
-		if(returnvalue == -1){
-			int error = errno;
+		if(returnvalue == -1)
+		{
+			error = errno;
 
-			if(errno == EAGAIN){	//If the error is that the device is busy, try again after a short wait
-				if(attempts++ < 5){
+			if(errno == EAGAIN) //If the error is that the device is busy, try again after a short wait
+			{
+				if(attempts++ < 5)
+				{
 					struct timespec toSleep;
 					toSleep.tv_sec = 0;
 					toSleep.tv_nsec = 50*1000000;
@@ -102,15 +108,11 @@ static int ca8210_test_int_write(const uint8_t *buf,
 					continue;
 				}
 			}
-
-			pthread_mutex_unlock(&tx_mutex);
-			return error;
+			break;
 		}
-
 	} while (remaining > 0);
 
-	pthread_mutex_unlock(&tx_mutex);
-	return 0;
+	return error;
 }
 
 ssize_t kernel_exchange_try_read(struct ca821x_dev *pDeviceRef,
@@ -157,23 +159,15 @@ void unblock_read(struct ca821x_dev *pDeviceRef)
 
 static int init_statics()
 {
-	int error = 0;
-
 	DriverFileDescriptor = -1;
-
-	error = init_generic_statics();
-	if (error) goto exit;
-
 	s_initialised = 1;
-
-exit:
-	return error;
+	return 0;
 }
 
 static int deinit_statics()
 {
 	s_initialised = 0;
-	return deinit_generic_statics();
+	return 0;
 }
 
 int kernel_exchange_init(struct ca821x_dev *pDeviceRef){
@@ -192,13 +186,14 @@ int kernel_exchange_init_withhandler(ca821x_errorhandler callback,
 		if (error) return error;
 	}
 
-	if(pDeviceRef->exchange_context) return 1;
+	if (pDeviceRef->exchange_context) return 1;
 
 	if (DriverFileDescriptor != -1) return 1;
 
 	DriverFileDescriptor = open(DriverFilePath, O_RDWR | O_NONBLOCK);
 
-	if (DriverFileDescriptor == -1) {
+	if (DriverFileDescriptor == -1)
+	{
 		return -1;
 	}
 
@@ -214,27 +209,13 @@ int kernel_exchange_init_withhandler(ca821x_errorhandler callback,
 	priv->base.read_func = kernel_exchange_try_read;
 	priv->base.flush_func = flush_unread_ke;
 
-	pthread_mutex_init(&(priv->base.sync_mutex), NULL);
-	pthread_mutex_init(&(priv->base.in_queue_mutex), NULL);
-	pthread_mutex_init(&(priv->base.out_queue_mutex), NULL);
-	pthread_cond_init(&(priv->base.sync_cond), NULL);
-
-	pthread_mutex_lock(&flag_mutex);
-	priv->base.io_thread_runflag = 1;
-	pthread_mutex_unlock(&flag_mutex);
-
-	error = pthread_create(&(priv->base.io_thread),
-	                       NULL,
-	                       &ca8210_io_worker,
-	                       pDeviceRef);
+	error = init_generic(pDeviceRef);
 
 	if (error != 0)
 	{
 		error = -1;
 		goto exit;
 	}
-
-	pDeviceRef->ca821x_api_downstream = ca8210_exchange_commands;
 
 exit:
 	if (error && pDeviceRef->exchange_context)
@@ -248,16 +229,17 @@ exit:
 void kernel_exchange_deinit(struct ca821x_dev *pDeviceRef){
 	int ret;
 
+	deinit_generic(pDeviceRef);
 	deinit_statics();
 
 	//Lock all mutexes
 	pthread_mutex_lock(&tx_mutex);
 
 	//close the driver file
-	do{
+	do
+	{
 		ret = close(DriverFileDescriptor);
 	} while(ret < 0 && errno == EINTR);
-	s_initialised = 0;
 	free(pDeviceRef->exchange_context);
 	pDeviceRef->exchange_context = NULL;
 
