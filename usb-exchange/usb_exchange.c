@@ -74,6 +74,7 @@ static int s_initialised = 0;
 static void *s_hid_lib_handle = NULL;
 static struct hid_device_info *(*dhid_enumerate)(unsigned short, unsigned short);
 static hid_device *(*dhid_open_path)(const char *);
+static void (*dhid_close)(hid_device *);
 static void (*dhid_free_enumeration)(struct hid_device_info *);
 static int (*dhid_read_timeout)(hid_device *, unsigned char *, size_t, int);
 static int (*dhid_write)(hid_device *, const unsigned char *, size_t);
@@ -433,6 +434,8 @@ void usb_exchange_deinit(struct ca821x_dev *pDeviceRef)
 		}
 	}
 	pthread_mutex_unlock(&devs_mutex);
+
+	dhid_close(priv->hid_dev);
 
 	deinit_generic(pDeviceRef);
 

@@ -114,7 +114,7 @@ int init_generic(struct ca821x_dev *pDeviceRef)
 	pthread_mutex_unlock(&base->flag_mutex);
 
 	error = pthread_create(&(base->io_thread),
-	                       NULL,
+	                       PTHREAD_CREATE_JOINABLE,
 	                       &ca8210_io_worker,
 	                       pDeviceRef);
 
@@ -131,7 +131,7 @@ int deinit_generic(struct ca821x_dev *pDeviceRef)
 	priv->io_thread_runflag = 0;
 	pthread_mutex_unlock(&priv->flag_mutex);
 
-	//TODO: Wait for iothread close
+	pthread_join(&priv->io_thread, NULL);
 
 	pthread_mutex_destroy(&(priv->flag_mutex));
 	pthread_mutex_destroy(&(priv->sync_mutex));
@@ -153,8 +153,8 @@ static int init_generic_statics()
 	if (s_generic_initialised++) goto exit;
 
 	s_worker_run_flag = 1;
-	rval = pthread_create(&dd_thread, NULL, &ca821x_downstream_dispatch_worker,
-	                      NULL);
+	rval = pthread_create(&dd_thread, PTHREAD_CREATE_JOINABLE,
+	                      &ca821x_downstream_dispatch_worker, NULL);
 
 	if (rval != 0)
 	{
@@ -184,7 +184,7 @@ static int deinit_generic_statics()
 	                     &dd_cond,
 	                     NULL, 0, NULL);
 
-	//TODO: Wait for clean death of DD thread
+	pthread_join(&dd_thread, NULL);
 
 exit:
 	return 0;
@@ -226,7 +226,7 @@ void *ca8210_io_worker(void *arg)
 	priv->flush_func(pDeviceRef);
 
 	pthread_mutex_lock(&priv->flag_mutex);
-	while (s_worker_run_flag && priv->io_thread_runflag)
+	while (priv->io_thread_runflag)
 	{
 		pthread_mutex_unlock(&priv->flag_mutex);
 
