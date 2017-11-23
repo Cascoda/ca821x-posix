@@ -262,6 +262,7 @@ static int load_dlibs()
 
 	dhid_enumerate = dlsym(s_hid_lib_handle, "hid_enumerate");
 	dhid_open_path = dlsym(s_hid_lib_handle, "hid_open_path");
+	dhid_close = dlsym(s_hid_lib_handle, "hid_close");
 	dhid_free_enumeration = dlsym(s_hid_lib_handle, "hid_free_enumeration");
 	dhid_read_timeout = dlsym(s_hid_lib_handle, "hid_read_timeout");
 	dhid_write = dlsym(s_hid_lib_handle, "hid_write");
