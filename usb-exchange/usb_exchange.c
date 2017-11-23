@@ -421,6 +421,9 @@ void usb_exchange_deinit(struct ca821x_dev *pDeviceRef)
 {
 	struct usb_exchange_priv *priv = pDeviceRef->exchange_context;
 
+	deinit_generic(pDeviceRef);
+	dhid_close(priv->hid_dev);
+
 	pthread_mutex_lock(&devs_mutex);
 	s_devcount--;
 	if (s_devcount == 0) deinit_statics();
@@ -434,10 +437,6 @@ void usb_exchange_deinit(struct ca821x_dev *pDeviceRef)
 		}
 	}
 	pthread_mutex_unlock(&devs_mutex);
-
-	dhid_close(priv->hid_dev);
-
-	deinit_generic(pDeviceRef);
 
 	free(priv->hid_path);
 	free(priv);
