@@ -131,7 +131,7 @@ int deinit_generic(struct ca821x_dev *pDeviceRef)
 	priv->io_thread_runflag = 0;
 	pthread_mutex_unlock(&priv->flag_mutex);
 
-	pthread_join(&priv->io_thread, NULL);
+	pthread_join(priv->io_thread, NULL);
 
 	flush_queue(&priv->in_buffer_queue, &priv->in_queue_mutex);
 	flush_queue(&priv->out_buffer_queue, &priv->out_queue_mutex);
@@ -187,9 +187,9 @@ static int deinit_generic_statics()
 	                     &dd_cond,
 	                     NULL, 0, NULL);
 
-	pthread_join(&dd_thread, NULL);
+	pthread_join(dd_thread, NULL);
 
-	flush_queue(&downstream_dispatch_queue, downstream_queue_mutex);
+	flush_queue(&downstream_dispatch_queue, &downstream_queue_mutex);
 
 exit:
 	return 0;
