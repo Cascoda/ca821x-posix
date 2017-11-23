@@ -38,17 +38,20 @@
 #include "ca821x-queue.h"
 #include "ca821x_api.h"
 
-int s_worker_run_flag = 0;
-int s_generic_initialised = 0;
+static int s_worker_run_flag = 0;
+static int s_generic_initialised = 0;
 
-pthread_mutex_t flag_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t s_flag_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-struct buffer_queue *downstream_dispatch_queue = NULL;
-pthread_mutex_t downstream_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
+static struct buffer_queue *downstream_dispatch_queue = NULL;
+static pthread_mutex_t downstream_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t dd_thread;
-pthread_cond_t dd_cond = PTHREAD_COND_INITIALIZER;
+static pthread_cond_t dd_cond = PTHREAD_COND_INITIALIZER;
 
 void (*wake_hw_worker)(void);
+
+static int init_generic_statics(void);
+static int deinit_generic_statics(void);
 
 static void *ca821x_downstream_dispatch_worker(void *arg)
 {
@@ -59,10 +62,10 @@ static void *ca821x_downstream_dispatch_worker(void *arg)
 	uint8_t len;
 	int rval;
 
-	pthread_mutex_lock(&flag_mutex);
+	pthread_mutex_lock(&s_flag_mutex);
 	while (s_worker_run_flag)
 	{
-		pthread_mutex_unlock(&flag_mutex);
+		pthread_mutex_unlock(&s_flag_mutex);
 
 		wait_on_queue(&downstream_dispatch_queue, &downstream_queue_mutex,
 		              &dd_cond);
@@ -83,52 +86,110 @@ static void *ca821x_downstream_dispatch_worker(void *arg)
 			}
 		}
 
-		pthread_mutex_lock(&flag_mutex);
+		pthread_mutex_lock(&s_flag_mutex);
 	}
 
-	pthread_mutex_unlock(&flag_mutex);
+	pthread_mutex_unlock(&s_flag_mutex);
 	return 0;
 }
 
-int init_generic_statics()
+int init_generic(struct ca821x_dev *pDeviceRef)
 {
-	int rval, error = 0;
+	int error = 0;
+	struct ca821x_exchange_base *base = pDeviceRef->exchange_context;
 
-	if (s_generic_initialised) goto exit;
+	error = init_generic_statics();
+	if(error) goto exit;
 
-	s_worker_run_flag = 1;
-	rval = pthread_create(&dd_thread, NULL, &ca821x_downstream_dispatch_worker,
-	                      NULL);
+	pDeviceRef->ca821x_api_downstream = ca8210_exchange_commands;
 
-	if (rval != 0)
-	{
-		//The io thread is successfully running but dd is not
-		pthread_mutex_lock(&flag_mutex);
-		s_worker_run_flag = 0;
-		pthread_mutex_unlock(&flag_mutex);
-		error = -1;
-		goto exit;
-	}
+	pthread_mutex_init(&(base->flag_mutex), NULL);
+	pthread_mutex_init(&(base->sync_mutex), NULL);
+	pthread_mutex_init(&(base->in_queue_mutex), NULL);
+	pthread_mutex_init(&(base->out_queue_mutex), NULL);
+	pthread_cond_init(&(base->sync_cond), NULL);
 
-	s_generic_initialised = 1;
+	pthread_mutex_lock(&base->flag_mutex);
+	base->io_thread_runflag = 1;
+	pthread_mutex_unlock(&base->flag_mutex);
+
+	error = pthread_create(&(base->io_thread),
+	                       PTHREAD_CREATE_JOINABLE,
+	                       &ca8210_io_worker,
+	                       pDeviceRef);
 
 exit:
 	return error;
 }
 
-int deinit_generic_statics()
+int deinit_generic(struct ca821x_dev *pDeviceRef)
 {
-	if (!s_generic_initialised) goto exit;
+	int error = 0;
+	struct ca821x_exchange_base *priv = pDeviceRef->exchange_context;
+
+	pthread_mutex_lock(&priv->flag_mutex);
+	priv->io_thread_runflag = 0;
+	pthread_mutex_unlock(&priv->flag_mutex);
+
+	pthread_join(priv->io_thread, NULL);
+
+	flush_queue(&priv->in_buffer_queue, &priv->in_queue_mutex);
+	flush_queue(&priv->out_buffer_queue, &priv->out_queue_mutex);
+
+	pthread_mutex_destroy(&(priv->flag_mutex));
+	pthread_mutex_destroy(&(priv->sync_mutex));
+	pthread_mutex_destroy(&(priv->in_queue_mutex));
+	pthread_mutex_destroy(&(priv->out_queue_mutex));
+	pthread_cond_destroy(&(priv->sync_cond));
+
+	priv->error_callback = NULL;
+
+	deinit_generic_statics();
+
+	return error;
+}
+
+static int init_generic_statics()
+{
+	int rval, error = 0;
+
+	if (s_generic_initialised++) goto exit;
+
+	s_worker_run_flag = 1;
+	rval = pthread_create(&dd_thread, PTHREAD_CREATE_JOINABLE,
+	                      &ca821x_downstream_dispatch_worker, NULL);
+
+	if (rval != 0)
+	{
+		error = -1;
+		goto exit;
+	}
+
+exit:
+	if(error)
+	{
+		deinit_generic_statics();
+	}
+	return error;
+}
+
+static int deinit_generic_statics()
+{
+	if (!(--s_generic_initialised)) goto exit;
 
 	s_generic_initialised = 0;
-	pthread_mutex_lock(&flag_mutex);
+	pthread_mutex_lock(&s_flag_mutex);
 	s_worker_run_flag = 0;
-	pthread_mutex_unlock(&flag_mutex);
+	pthread_mutex_unlock(&s_flag_mutex);
 
 	//Wake the downstream dispatch thread up so that it dies cleanly
 	add_to_waiting_queue(&downstream_dispatch_queue, &downstream_queue_mutex,
 	                     &dd_cond,
 	                     NULL, 0, NULL);
+
+	pthread_join(dd_thread, NULL);
+
+	flush_queue(&downstream_dispatch_queue, &downstream_queue_mutex);
 
 exit:
 	return 0;
@@ -169,10 +230,10 @@ void *ca8210_io_worker(void *arg)
 
 	priv->flush_func(pDeviceRef);
 
-	pthread_mutex_lock(&flag_mutex);
-	while (s_worker_run_flag && priv->io_thread_runflag)
+	pthread_mutex_lock(&priv->flag_mutex);
+	while (priv->io_thread_runflag)
 	{
-		pthread_mutex_unlock(&flag_mutex);
+		pthread_mutex_unlock(&priv->flag_mutex);
 
 		len = priv->read_func(pDeviceRef, buffer);
 		if (len > 0)
@@ -214,10 +275,10 @@ void *ca8210_io_worker(void *arg)
 			}
 		}
 
-		pthread_mutex_lock(&flag_mutex);
+		pthread_mutex_lock(&priv->flag_mutex);
 	}
 
-	pthread_mutex_unlock(&flag_mutex);
+	pthread_mutex_unlock(&priv->flag_mutex);
 	return 0;
 }
 
