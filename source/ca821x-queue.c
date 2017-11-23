@@ -48,11 +48,11 @@ void add_to_queue(struct buffer_queue **head_buffer_queue,
 }
 
 void add_to_waiting_queue(struct buffer_queue **head_buffer_queue,
-                                 pthread_mutex_t *buf_queue_mutex,
-                                 pthread_cond_t *queue_cond,
-                                 const uint8_t *buf,
-                                 size_t len,
-                                 struct ca821x_dev *pDeviceRef)
+                          pthread_mutex_t *buf_queue_mutex,
+                          pthread_cond_t *queue_cond,
+                          const uint8_t *buf,
+                          size_t len,
+                          struct ca821x_dev *pDeviceRef)
 {
 	if (pthread_mutex_lock(buf_queue_mutex) == 0)
 	{
@@ -85,11 +85,33 @@ void add_to_waiting_queue(struct buffer_queue **head_buffer_queue,
 	}
 }
 
+void flush_queue(struct buffer_queue **head_buffer_queue,
+                 pthread_mutex_t *buf_queue_mutex)
+{
+	struct ca821x_dev * junkDev;
+	uint8_t *junk;
+
+	pthread_mutex_lock(buf_queue_mutex);
+	while(*head_buffer_queue != NULL)
+	{
+		pthread_mutex_unlock(buf_queue_mutex);
+
+		pop_from_queue(head_buffer_queue,
+		               buf_queue_mutex,
+		               junk,
+		               0,
+		               &junkDev);
+
+		pthread_mutex_lock(buf_queue_mutex);
+	}
+	pthread_mutex_unlock(buf_queue_mutex);
+}
+
 size_t pop_from_queue(struct buffer_queue **head_buffer_queue,
-                             pthread_mutex_t *buf_queue_mutex,
-                             uint8_t * destBuf,
-                             size_t maxlen,
-                             struct ca821x_dev **pDeviceRef_out)
+                      pthread_mutex_t *buf_queue_mutex,
+                      uint8_t * destBuf,
+                      size_t maxlen,
+                      struct ca821x_dev **pDeviceRef_out)
 {
 	if (pthread_mutex_lock(buf_queue_mutex) == 0)
 	{
@@ -118,7 +140,7 @@ size_t pop_from_queue(struct buffer_queue **head_buffer_queue,
 
 //return the length of the next buffer in the queue if it exists, otherwise 0
 size_t peek_queue(struct buffer_queue * head_buffer_queue,
-                         pthread_mutex_t *buf_queue_mutex)
+                  pthread_mutex_t *buf_queue_mutex)
 {
 	size_t in_queue = 0;
 
@@ -136,8 +158,8 @@ size_t peek_queue(struct buffer_queue * head_buffer_queue,
 //return the length of the next buffer in the queue, blocking until
 //it arrives. Returns length of buffer (or -1 upon error).
 size_t wait_on_queue(struct buffer_queue ** head_buffer_queue,
-                            pthread_mutex_t *buf_queue_mutex,
-                            pthread_cond_t *queue_cond)
+                     pthread_mutex_t *buf_queue_mutex,
+                     pthread_cond_t *queue_cond)
 {
 	size_t in_queue = -1;
 
