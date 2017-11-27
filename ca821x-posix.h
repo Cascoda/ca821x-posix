@@ -54,4 +54,18 @@ void ca821x_util_deinit(struct ca821x_dev *pDeviceRef);
  */
 int ca821x_util_reset(struct ca821x_dev *pDeviceRef);
 
+/**
+ * Registers the callback to call for any non-ca821x commands that are sent over
+ * the interface. Commands are still limited to the ca821x format, and must
+ * use a command ID that is not currently used by the ca821x-spi protocol.
+ * Currently, 0xA8 is used for openthread commands.
+ *
+ * @param[in]  callback   Function pointer to an user-command-handling callback
+ *
+ * @returns 0 for success, -1 for error
+ *
+ */
+int exchange_register_user_callback(exchange_user_callback callback,
+                                    struct ca821x_dev *pDeviceRef);
+
 #endif //CA821X_POSIX_H

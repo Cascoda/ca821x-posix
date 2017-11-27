@@ -36,12 +36,15 @@
 
 #define MAX_BUF_SIZE 189
 
+
 int init_generic(struct ca821x_dev *pDeviceRef);
+
 int deinit_generic(struct ca821x_dev *pDeviceRef);
-int exchange_register_user_callback(exchange_user_callback callback,
-                                    struct ca821x_dev *pDeviceRef);
+
 int exchange_handle_error(int error, struct ca821x_exchange_base *priv);
+
 void *ca8210_io_worker(void *arg);
+
 int ca8210_exchange_commands(const uint8_t *buf,
                              size_t len,
                              uint8_t *response,
