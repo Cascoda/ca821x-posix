@@ -78,20 +78,6 @@ int usb_exchange_init_withhandler(ca821x_errorhandler callback,
                                   struct ca821x_dev *pDeviceRef);
 
 /**
- * Registers the callback to call for any non-ca821x commands that are sent over
- * the usb interface. Commands are still limited to the ca821x format, and must
- * use a command ID that is not currently used by the ca821x-spi protocol.
- * Currently, 0xA8 is used for openthread commands.
- *
- * @param[in]  callback   Function pointer to an user-command-handling callback
- *
- * @returns 0 for success, -1 for error
- *
- */
-int usb_exchange_register_user_callback(exchange_user_callback callback,
-                                        struct ca821x_dev *pDeviceRef);
-
-/**
  * Sends a USB command over the USB interface using the TLV format from ca821x-spi.
  *
  * Requirements:
