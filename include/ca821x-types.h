@@ -32,7 +32,7 @@ typedef int (*ca821x_errorhandler)(
  * to this callback.
  */
 typedef int (*exchange_user_callback)(
-	const uint8_t *buf, size_t len, void *pDeviceRef
+	const uint8_t *buf, size_t len, struct ca821x_dev *pDeviceRef
 );
 
 /* \brief Exchange write function
