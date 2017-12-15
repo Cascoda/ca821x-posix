@@ -74,6 +74,20 @@ static int driverErrorCallback(int error_number)
 	return 0;
 }
 
+int handleUserCallback(const uint8_t *buf, size_t len,
+                       struct ca821x_dev *pDeviceRef)
+{
+	struct inst_priv *priv = pDeviceRef->context;
+
+	if (buf[0] == 0xA0)
+	{
+		fprintf(stderr, "IN %04x: %.*s\n", priv->mAddress, len - 2, buf + 2);
+		return 1;
+	}
+	return 0;
+}
+
+
 static int handleDataIndication(struct MCPS_DATA_indication_pset *params, struct ca821x_dev *pDeviceRef)   //Async
 {
 	struct inst_priv *priv = pDeviceRef->context;
@@ -181,6 +195,15 @@ void drawTableHeader()
 		printf("|---" COLOR_SET(BOLDWHITE,"NODE %02d") "---|", i);
 	}
 	printf("\n");
+	printf("|----|");
+	for (int i = 0; i < numInsts; i++)
+	{
+		uint8_t len = 0;
+		uint8_t leArr[2];
+		MLME_GET_request_sync(macShortAddress, 0, &len, leArr, &insts[i].pDeviceRef);
+		printf("|-ShAddr %04x-|", GETLE16(leArr));
+	}
+	printf("\n");
 	printf("|TIME|");
 	for(int i = 0; i < numInsts; i++)
 	{
@@ -228,6 +251,7 @@ int main(int argc, char *argv[])
 		callbacks.MCPS_DATA_confirm = &handleDataConfirm;
 		callbacks.generic_dispatch = &handleGenericDispatchFrame;
 		ca821x_register_callbacks(&callbacks, pDeviceRef);
+		exchange_register_user_callback(&handleUserCallback, pDeviceRef);
 
 		//Reset the MAC to a default state
 		MLME_RESET_request_sync(1, pDeviceRef);
