@@ -9,6 +9,29 @@
 
 #include "../ca821x-posix.h"
 
+/* Colour codes for printf */
+#ifndef NO_COLOR
+#define RED        "\x1b[31m"
+#define GREEN      "\x1b[32m"
+#define YELLOW     "\x1b[33m"
+#define BLUE       "\x1b[34m"
+#define MAGENTA    "\x1b[35m"
+#define CYAN       "\x1b[36m"
+#define BOLDWHITE  "\033[1m\033[37m"
+#define RESET      "\x1b[0m"
+#else
+#define RED        ""
+#define GREEN      ""
+#define YELLOW     ""
+#define BLUE       ""
+#define MAGENTA    ""
+#define CYAN       ""
+#define BOLDWHITE  ""
+#define RESET      ""
+#endif
+
+#define COLOR_SET(C,X) C X RESET
+
 #define M_PANID 0x1AAA
 #define M_MSDU_LENGTH 100
 #define MAX_INSTANCES 3
@@ -46,7 +69,7 @@ static void quit(int sig)
 
 static int driverErrorCallback(int error_number)
 {
-	printf( "\r\nDRIVER FAILED WITH ERROR %d\n\r", error_number);
+	printf( COLOR_SET(RED,"\r\nDRIVER FAILED WITH ERROR %d\n\r") , error_number);
 	abort();
 	return 0;
 }
@@ -155,13 +178,13 @@ void drawTableHeader()
 	printf("|----|");
 	for(int i = 0; i < numInsts; i++)
 	{
-		printf("|---NODE %02d---|", i);
+		printf("|---" COLOR_SET(BOLDWHITE,"NODE %02d") "---|", i);
 	}
 	printf("\n");
 	printf("|TIME|");
 	for(int i = 0; i < numInsts; i++)
 	{
-		printf("|Tx  |Rx  |Err|");
+		printf("|"COLOR_SET(GREEN,"Tx  ")"|Rx  |"COLOR_SET(RED,"Err")"|");
 	}
 	printf("\n");
 }
@@ -172,7 +195,8 @@ void drawTableRow(unsigned int time)
 	pthread_mutex_lock(&out_mutex);
 	for(int i = 0; i < numInsts; i++)
 	{
-		printf("|%4d|%4d|%3d|", insts[i].mTx, insts[i].mRx, insts[i].mErr);
+		printf("|" COLOR_SET(GREEN,"%4d") "|%4d|" COLOR_SET(RED,"%3d") "|",
+		       insts[i].mTx, insts[i].mRx, insts[i].mErr);
 	}
 	pthread_mutex_unlock(&out_mutex);
 	printf("\n");
@@ -187,11 +211,11 @@ int main(int argc, char *argv[])
 		struct inst_priv *cur = &insts[i];
 		struct ca821x_dev *pDeviceRef = &(cur->pDeviceRef);
 		cur->mAddress = atoi(argv[i+1]);
-		cur->confirm_done = 1;	
+		cur->confirm_done = 1;
 
 		pthread_mutex_init(&(cur->confirm_mutex), NULL);
-		pthread_cond_init(&(cur->confirm_cond), NULL);	
-	
+		pthread_cond_init(&(cur->confirm_cond), NULL);
+
 		while(ca821x_util_init(pDeviceRef, &driverErrorCallback))
 		{
 			sleep(1); //Wait while there isn't a device available to connect
