@@ -194,13 +194,11 @@ ssize_t usb_try_read(struct ca821x_dev *pDeviceRef,
 	{
 		error = dhid_read_timeout(priv->hid_dev, frag_buf, MAX_FRAG_SIZE,
 		                          delay);
-		if (error <= 0)
-		{
-			error = -usb_exchange_err_usb;
-			break;
-		}
+		if (error <= 0) break;
 		delay = -1;
 	} while (assemble_frags(frag_buf, buf, &len, &offset));
+
+	if(error < 0) error = usb_exchange_err_usb;
 
 	if(buf[0] == 0xF0 && buf[2] == 0xF0)
 	{
