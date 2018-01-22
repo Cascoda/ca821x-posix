@@ -21,7 +21,8 @@ struct ca821x_dev;
  * cause a crash.
  */
 typedef int (*ca821x_errorhandler)(
-	int error_number
+	int error_number,
+	struct ca821x_dev *pDeviceRef
 );
 
 /* Optional callback for the application layer

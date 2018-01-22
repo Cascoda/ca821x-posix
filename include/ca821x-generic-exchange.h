@@ -41,7 +41,7 @@ int init_generic(struct ca821x_dev *pDeviceRef);
 
 int deinit_generic(struct ca821x_dev *pDeviceRef);
 
-int exchange_handle_error(int error, struct ca821x_exchange_base *priv);
+int exchange_handle_error(int error, struct ca821x_dev *pDeviceRef);
 
 void *ca8210_io_worker(void *arg);
 

@@ -38,7 +38,7 @@
 
 enum usb_exchange_errors {
 	usb_exchange_err_usb = 1,		//Usb error - probably device removed and going to have to crash safely
-	usb_exchange_err_ca821x,	//ca821x error - can probably trigger a hard reset and recover
+	usb_exchange_err_ca821x,	//ca821x error - ca821x has been reset
 	usb_exchange_err_generic
 };
 

@@ -67,9 +67,10 @@ static void quit(int sig)
 	exit(0);
 }
 
-static int driverErrorCallback(int error_number)
+static int driverErrorCallback(int error_number, struct ca821x_dev *pDeviceRef)
 {
-	printf( COLOR_SET(RED,"\r\nDRIVER FAILED WITH ERROR %d\n\r") , error_number);
+	struct inst_priv *priv = pDeviceRef->context;
+	printf( COLOR_SET(RED,"\r\nDRIVER FAILED FOR %x WITH ERROR %d\n\r") , priv->mAddress, error_number);
 	abort();
 	return 0;
 }
@@ -102,6 +103,8 @@ static int handleDataConfirm(struct MCPS_DATA_confirm_pset *params, struct ca821
 	struct inst_priv *priv = pDeviceRef->context;
 	pthread_mutex_t *confirm_mutex = &(priv->confirm_mutex);
 	pthread_cond_t *confirm_cond = &(priv->confirm_cond);
+
+	TDME_SETSFR_request_sync(0, 0xdb, 0x0A, pDeviceRef);
 
 	if(params->Status == MAC_SUCCESS)
 	{
@@ -165,6 +168,7 @@ static void *inst_worker(void *arg)
 
 		//fire
 		dest.ShortAddress = insts[i].mAddress;
+		TDME_SETSFR_request_sync(0, 0xdb, 0x0E, pDeviceRef);
 		MCPS_DATA_request(
 				MAC_MODE_SHORT_ADDR,
 				MAC_MODE_SHORT_ADDR,

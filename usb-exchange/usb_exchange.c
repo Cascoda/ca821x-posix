@@ -194,9 +194,19 @@ ssize_t usb_try_read(struct ca821x_dev *pDeviceRef,
 	{
 		error = dhid_read_timeout(priv->hid_dev, frag_buf, MAX_FRAG_SIZE,
 		                          delay);
-		if (error <= 0) break;
+		if (error <= 0)
+		{
+			error = -usb_exchange_err_usb;
+			break;
+		}
 		delay = -1;
 	} while (assemble_frags(frag_buf, buf, &len, &offset));
+
+	if(buf[0] == 0xF0 && buf[2] == 0xF0)
+	{
+		//Error packet indicating coprocessor has reset ca821x - let app know
+		error = -usb_exchange_err_ca821x;
+	}
 
 	if (error <= 0)
 	{
@@ -446,7 +456,8 @@ void usb_exchange_deinit(struct ca821x_dev *pDeviceRef)
 
 int usb_exchange_reset(unsigned long resettime, struct ca821x_dev *pDeviceRef)
 {
-	return -1;
+	//For usb, the coprocessor will reset the ca821x if it isn't responsive.. so just rely on that
+	return 0;
 }
 
 int usb_exchange_user_send(const uint8_t *buf, size_t len,
