@@ -277,7 +277,7 @@ int exchange_handle_error(int error, struct ca821x_dev *pDeviceRef)
 	}
 	else if (rval == EBUSY)
 	{
-		uint8_t buffer = {0};
+		uint8_t buffer[] = {0};
 		//Push a fake response to unblock sync waiter
 		add_to_waiting_queue(&(priv->in_buffer_queue),
 		                     &(priv->in_queue_mutex),
@@ -379,7 +379,7 @@ int ca8210_exchange_commands(
 
 	//If in error state, wait until restored
 	pthread_mutex_lock(&priv->flag_mutex);
-	if(priv->restoreflag && pthread_equal(*priv->rescue_thread, pthread_self()))
+	if(priv->restoreflag && pthread_equal(priv->rescue_thread, pthread_self()))
 	{
 		is_rescuer = 1;
 	}
