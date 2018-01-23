@@ -49,7 +49,6 @@ struct inst_priv
 	uint8_t confirm_done;
 	uint16_t mAddress;
 	uint8_t lastHandle;
-	uint8_t mInitialised;
 
 	unsigned int mTx, mRx, mErr;
 };
@@ -58,6 +57,8 @@ int numInsts;
 struct inst_priv insts[MAX_INSTANCES] = {};
 
 pthread_mutex_t out_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+void initInst(struct inst_priv *cur);
 
 static void quit(int sig)
 {
@@ -77,11 +78,14 @@ static int driverErrorCallback(int error_number, struct ca821x_dev *pDeviceRef)
 	printf( COLOR_SET(RED,"\r\nDRIVER FAILED FOR %x WITH ERROR %d\n\r") , priv->mAddress, error_number);
 	printf( COLOR_SET(BLUE,"\r\nAttempting restart...\n\r"));
 
+	initInst(priv);
+
 	pthread_mutex_lock(confirm_mutex);
-	priv->mInitialised = 0;
 	priv->confirm_done = 1;
 	pthread_cond_broadcast(confirm_cond);
 	pthread_mutex_unlock(confirm_mutex);
+
+	printf( COLOR_SET(GREEN,"\r\nRestart successful!\n\r"));
 
 	return 0;
 }
@@ -166,12 +170,7 @@ static void *inst_worker(void *arg)
 		} while(&insts[i] == priv);
 		//wait for confirm & reset
 		pthread_mutex_lock(confirm_mutex);
-		while(!priv->confirm_done && priv->mInitialised) pthread_cond_wait(confirm_cond, confirm_mutex);
-		if(!priv->mInitialised)
-		{
-			pthread_mutex_unlock(confirm_mutex);
-			return NULL;
-		}
+		while(!priv->confirm_done) pthread_cond_wait(confirm_cond, confirm_mutex);
 		priv->confirm_done = 0;
 		priv->lastHandle++;
 		pthread_mutex_unlock(confirm_mutex);
@@ -245,28 +244,9 @@ void drawTableRow(unsigned int time)
 	printf("\n");
 }
 
-void initInst(struct inst_priv *cur, )
+void initInst(struct inst_priv *cur)
 {
 	struct ca821x_dev *pDeviceRef = &(cur->pDeviceRef);
-
-	cur->confirm_done = 1;
-
-	pthread_mutex_init(&(cur->confirm_mutex), NULL);
-	pthread_cond_init(&(cur->confirm_cond), NULL);
-
-	while(ca821x_util_init(pDeviceRef, &driverErrorCallback))
-	{
-		sleep(1); //Wait while there isn't a device available to connect
-	}
-	pDeviceRef->context = cur;
-
-	//Register callbacks for async messages
-	struct ca821x_api_callbacks callbacks = {0};
-	callbacks.MCPS_DATA_indication = &handleDataIndication;
-	callbacks.MCPS_DATA_confirm = &handleDataConfirm;
-	callbacks.generic_dispatch = &handleGenericDispatchFrame;
-	ca821x_register_callbacks(&callbacks, pDeviceRef);
-	exchange_register_user_callback(&handleUserCallback, pDeviceRef);
 
 	//Reset the MAC to a default state
 	MLME_RESET_request_sync(1, pDeviceRef);
@@ -333,9 +313,6 @@ void initInst(struct inst_priv *cur, )
 		sizeof(rxOnWhenIdle),
 		&rxOnWhenIdle,
 		pDeviceRef);
-
-	cur->mInitialised = 1;
-
 }
 
 int main(int argc, char *argv[])
@@ -345,7 +322,27 @@ int main(int argc, char *argv[])
 
 	for(int i = 0; i < numInsts; i++){
 		struct inst_priv *cur = &insts[i];
+		struct ca821x_dev *pDeviceRef = &(cur->pDeviceRef);
 		cur->mAddress = atoi(argv[i+1]);
+		cur->confirm_done = 1;
+
+		pthread_mutex_init(&(cur->confirm_mutex), NULL);
+		pthread_cond_init(&(cur->confirm_cond), NULL);
+
+		while(ca821x_util_init(pDeviceRef, &driverErrorCallback))
+		{
+			sleep(1); //Wait while there isn't a device available to connect
+		}
+		pDeviceRef->context = cur;
+
+		//Register callbacks for async messages
+		struct ca821x_api_callbacks callbacks = {0};
+		callbacks.MCPS_DATA_indication = &handleDataIndication;
+		callbacks.MCPS_DATA_confirm = &handleDataConfirm;
+		callbacks.generic_dispatch = &handleGenericDispatchFrame;
+		ca821x_register_callbacks(&callbacks, pDeviceRef);
+		exchange_register_user_callback(&handleUserCallback, pDeviceRef);
+
 		initInst(cur);
 		printf("Initialised. %d\r\n", i);
 	}
