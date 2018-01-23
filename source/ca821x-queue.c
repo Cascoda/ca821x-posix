@@ -125,7 +125,7 @@ void reseat_queue(struct buffer_queue **head_buffer_queue,
 	if (endbuf == NULL)
 	{
 		//queue empty -> simple move
-		*head_buffer_queue = tomove;
+		*head_buffer_queue2 = tomove;
 	}
 	else
 	{
@@ -136,7 +136,7 @@ void reseat_queue(struct buffer_queue **head_buffer_queue,
 		//add on to end
 		endbuf->next = tomove;
 	}
-	pthread_mutex_lock(buf_queue_mutex2);
+	pthread_mutex_unlock(buf_queue_mutex2);
 }
 
 size_t pop_from_queue(struct buffer_queue **head_buffer_queue,

@@ -75,17 +75,17 @@ static int driverErrorCallback(int error_number, struct ca821x_dev *pDeviceRef)
 	pthread_mutex_t *confirm_mutex = &(priv->confirm_mutex);
 	pthread_cond_t *confirm_cond = &(priv->confirm_cond);
 
-	printf( COLOR_SET(RED,"\r\nDRIVER FAILED FOR %x WITH ERROR %d\n\r") , priv->mAddress, error_number);
-	printf( COLOR_SET(BLUE,"\r\nAttempting restart...\n\r"));
+	printf( COLOR_SET(RED,"DRIVER FAILED FOR %x WITH ERROR %d\n\r") , priv->mAddress, error_number);
+	printf( COLOR_SET(BLUE,"Attempting restart...\n\r"));
 
 	initInst(priv);
+
+	printf( COLOR_SET(GREEN,"Restart successful!\n\r"));
 
 	pthread_mutex_lock(confirm_mutex);
 	priv->confirm_done = 1;
 	pthread_cond_broadcast(confirm_cond);
 	pthread_mutex_unlock(confirm_mutex);
-
-	printf( COLOR_SET(GREEN,"\r\nRestart successful!\n\r"));
 
 	return 0;
 }

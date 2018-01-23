@@ -215,6 +215,10 @@ static void *ca821x_recovery_worker(void *arg)
 	struct ca821x_dev *pDeviceRef = arg;
 	struct ca821x_exchange_base *priv = pDeviceRef->exchange_context;
 
+	pthread_mutex_lock(&priv->flag_mutex);
+	priv->rescue_thread = pthread_self();
+	pthread_mutex_unlock(&priv->flag_mutex);
+
 	if (priv->error_callback)
 	{
 		priv->error_callback(priv->error, pDeviceRef);
@@ -226,22 +230,24 @@ static void *ca821x_recovery_worker(void *arg)
 
 	pthread_mutex_lock(&priv->flag_mutex);
 	priv->restoreflag = 0;
-	pthread_cond_signal(&priv->restore_cond);
+	pthread_cond_broadcast(&priv->restore_cond);
 	pthread_mutex_unlock(&priv->flag_mutex);
 
 	//Swap contents restore buffers back into queues:
-	reseat_queue(&priv->out_buffer_queue,
-				 &priv->restore_out_buffer_queue,
-				 &priv->out_queue_mutex,
-				 &priv->out_queue_mutex);
+	reseat_queue(&priv->restore_out_buffer_queue,
+	             &priv->out_buffer_queue,
+	             &priv->out_queue_mutex,
+	             &priv->out_queue_mutex);
 
-	reseat_queue(&priv->in_buffer_queue,
-				 &priv->restore_in_buffer_queue,
-				 &priv->in_queue_mutex,
-				 &priv->in_queue_mutex);
+	reseat_queue(&priv->restore_in_buffer_queue,
+	             &priv->in_buffer_queue,
+	             &priv->in_queue_mutex,
+	             &priv->in_queue_mutex);
 
 	//Signal the sync queue just in case there is something waiting
+	pthread_mutex_lock(&(priv->in_queue_mutex));
 	pthread_cond_signal(&priv->sync_cond);
+	pthread_mutex_unlock(&(priv->in_queue_mutex));
 
 	return NULL;
 }
@@ -264,7 +270,6 @@ int exchange_handle_error(int error, struct ca821x_dev *pDeviceRef)
 	             &priv->in_queue_mutex,
 	             &priv->in_queue_mutex);
 
-
 	pthread_mutex_lock(&priv->flag_mutex);
 	if(priv->restoreflag) abort(); //Failed during recovery - give up
 	else priv->restoreflag = 1;
@@ -286,9 +291,9 @@ int exchange_handle_error(int error, struct ca821x_dev *pDeviceRef)
 	}
 
 	pthread_create(&priv->rescue_thread,
-				   NULL,
-				   &ca821x_recovery_worker,
-				   pDeviceRef);
+	               NULL,
+	               &ca821x_recovery_worker,
+	               pDeviceRef);
 	return 0;
 }
 
