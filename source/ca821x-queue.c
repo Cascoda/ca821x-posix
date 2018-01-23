@@ -107,6 +107,38 @@ void flush_queue(struct buffer_queue **head_buffer_queue,
 	pthread_mutex_unlock(buf_queue_mutex);
 }
 
+void reseat_queue(struct buffer_queue **head_buffer_queue,
+                  struct buffer_queue **head_buffer_queue2,
+                  pthread_mutex_t *buf_queue_mutex,
+                  pthread_mutex_t *buf_queue_mutex2)
+{
+	struct buffer_queue *tomove;
+	struct buffer_queue *endbuf;
+
+	pthread_mutex_lock(buf_queue_mutex);
+	tomove = *head_buffer_queue;
+	*head_buffer_queue = NULL;
+	pthread_mutex_unlock(buf_queue_mutex);
+
+	pthread_mutex_lock(buf_queue_mutex2);
+	endbuf = *head_buffer_queue2;
+	if (endbuf == NULL)
+	{
+		//queue empty -> simple move
+		*head_buffer_queue = tomove;
+	}
+	else
+	{
+		while (endbuf->next != NULL)
+		{
+			endbuf = endbuf->next;
+		}
+		//add on to end
+		endbuf->next = tomove;
+	}
+	pthread_mutex_lock(buf_queue_mutex2);
+}
+
 size_t pop_from_queue(struct buffer_queue **head_buffer_queue,
                       pthread_mutex_t *buf_queue_mutex,
                       uint8_t * destBuf,

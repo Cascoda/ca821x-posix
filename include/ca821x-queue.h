@@ -38,6 +38,7 @@
 
 #include "ca821x-types.h"
 
+//Add a buffer onto the end of a non-waiting queue
 void add_to_queue(
 	struct buffer_queue **head_buffer_queue,
 	pthread_mutex_t *buf_queue_mutex,
@@ -45,6 +46,7 @@ void add_to_queue(
 	size_t len,
 	struct ca821x_dev *pDeviceRef);
 
+//Add a buffer onto the end of a queue that may have something waiting on it
 void add_to_waiting_queue(
 	struct buffer_queue **head_buffer_queue,
 	pthread_mutex_t *buf_queue_mutex,
@@ -53,10 +55,19 @@ void add_to_waiting_queue(
 	size_t len,
 	struct ca821x_dev *pDeviceRef);
 
+//Empty a queue into nothing
 void flush_queue(
 	struct buffer_queue **head_buffer_queue,
 	pthread_mutex_t *buf_queue_mutex);
 
+//Reseat one queue onto the end of another
+void reseat_queue(
+	struct buffer_queue **head_buffer_queue,
+	struct buffer_queue **head_buffer_queue2,
+	pthread_mutex_t *buf_queue_mutex,
+	pthread_mutex_t *buf_queue_mutex2);
+
+//Pop a buffer off a queue
 size_t pop_from_queue(
 	struct buffer_queue **head_buffer_queue,
 	pthread_mutex_t *buf_queue_mutex,
@@ -64,10 +75,12 @@ size_t pop_from_queue(
 	size_t maxlen,
 	struct ca821x_dev **pDeviceRef_out);
 
+//Non-blocking function returning the length of the next buffer on the queue (or 0 if nothing)
 size_t peek_queue(
 	struct buffer_queue *head_buffer_queue,
 	pthread_mutex_t *buf_queue_mutex);
 
+//Wait on a queue, blocking until there is something available
 size_t wait_on_queue(
 	struct buffer_queue ** head_buffer_queue,
 	pthread_mutex_t *buf_queue_mutex,

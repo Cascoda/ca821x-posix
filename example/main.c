@@ -49,12 +49,13 @@ struct inst_priv
 	uint8_t confirm_done;
 	uint16_t mAddress;
 	uint8_t lastHandle;
+	uint8_t mInitialised;
 
 	unsigned int mTx, mRx, mErr;
 };
 
 int numInsts;
-struct inst_priv insts[MAX_INSTANCES];
+struct inst_priv insts[MAX_INSTANCES] = {};
 
 pthread_mutex_t out_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -70,8 +71,18 @@ static void quit(int sig)
 static int driverErrorCallback(int error_number, struct ca821x_dev *pDeviceRef)
 {
 	struct inst_priv *priv = pDeviceRef->context;
+	pthread_mutex_t *confirm_mutex = &(priv->confirm_mutex);
+	pthread_cond_t *confirm_cond = &(priv->confirm_cond);
+
 	printf( COLOR_SET(RED,"\r\nDRIVER FAILED FOR %x WITH ERROR %d\n\r") , priv->mAddress, error_number);
-	abort();
+	printf( COLOR_SET(BLUE,"\r\nAttempting restart...\n\r"));
+
+	pthread_mutex_lock(confirm_mutex);
+	priv->mInitialised = 0;
+	priv->confirm_done = 1;
+	pthread_cond_broadcast(confirm_cond);
+	pthread_mutex_unlock(confirm_mutex);
+
 	return 0;
 }
 
@@ -155,7 +166,12 @@ static void *inst_worker(void *arg)
 		} while(&insts[i] == priv);
 		//wait for confirm & reset
 		pthread_mutex_lock(confirm_mutex);
-		while(!priv->confirm_done) pthread_cond_wait(confirm_cond, confirm_mutex);
+		while(!priv->confirm_done && priv->mInitialised) pthread_cond_wait(confirm_cond, confirm_mutex);
+		if(!priv->mInitialised)
+		{
+			pthread_mutex_unlock(confirm_mutex);
+			return NULL;
+		}
 		priv->confirm_done = 0;
 		priv->lastHandle++;
 		pthread_mutex_unlock(confirm_mutex);
@@ -229,6 +245,99 @@ void drawTableRow(unsigned int time)
 	printf("\n");
 }
 
+void initInst(struct inst_priv *cur, )
+{
+	struct ca821x_dev *pDeviceRef = &(cur->pDeviceRef);
+
+	cur->confirm_done = 1;
+
+	pthread_mutex_init(&(cur->confirm_mutex), NULL);
+	pthread_cond_init(&(cur->confirm_cond), NULL);
+
+	while(ca821x_util_init(pDeviceRef, &driverErrorCallback))
+	{
+		sleep(1); //Wait while there isn't a device available to connect
+	}
+	pDeviceRef->context = cur;
+
+	//Register callbacks for async messages
+	struct ca821x_api_callbacks callbacks = {0};
+	callbacks.MCPS_DATA_indication = &handleDataIndication;
+	callbacks.MCPS_DATA_confirm = &handleDataConfirm;
+	callbacks.generic_dispatch = &handleGenericDispatchFrame;
+	ca821x_register_callbacks(&callbacks, pDeviceRef);
+	exchange_register_user_callback(&handleUserCallback, pDeviceRef);
+
+	//Reset the MAC to a default state
+	MLME_RESET_request_sync(1, pDeviceRef);
+
+	uint8_t disable = 0; //Disable low LQI rejection @ MAC Layer
+	HWME_SET_request_sync(0x11, 1, &disable, pDeviceRef);
+
+	//Set up MAC pib attributes
+	uint8_t retries = 3;	//Retry transmission 3 times if not acknowledged
+	MLME_SET_request_sync(
+		macMaxFrameRetries,
+		0,
+		sizeof(retries),
+		&retries,
+		pDeviceRef);
+
+	retries = 4;	//max 4 CSMA backoffs
+	MLME_SET_request_sync(
+		macMaxCSMABackoffs,
+		0,
+		sizeof(retries),
+		&retries,
+		pDeviceRef);
+
+	uint8_t maxBE = 4;	//max BackoffExponent 4
+	MLME_SET_request_sync(
+		macMaxBE,
+		0,
+		sizeof(maxBE),
+		&maxBE,
+		pDeviceRef);
+
+	uint8_t channel = 22;
+	MLME_SET_request_sync(
+		phyCurrentChannel,
+		0,
+		sizeof(channel),
+		&channel,
+		pDeviceRef);
+
+	uint8_t LEarray[2];
+	LEarray[0] = LS0_BYTE(M_PANID);
+	LEarray[1] = LS1_BYTE(M_PANID);
+	MLME_SET_request_sync(
+		macPANId,
+		0,
+		2,
+		LEarray,
+		pDeviceRef);
+
+	LEarray[0] = LS0_BYTE(cur->mAddress);
+	LEarray[1] = LS1_BYTE(cur->mAddress);
+	MLME_SET_request_sync(
+		macShortAddress,
+		0,
+		sizeof(cur->mAddress),
+		LEarray,
+		pDeviceRef);
+
+	uint8_t rxOnWhenIdle = 1;
+	MLME_SET_request_sync( //enable Rx when Idle
+		macRxOnWhenIdle,
+		0,
+		sizeof(rxOnWhenIdle),
+		&rxOnWhenIdle,
+		pDeviceRef);
+
+	cur->mInitialised = 1;
+
+}
+
 int main(int argc, char *argv[])
 {
 	if(argc <= 2) return -1;
@@ -236,93 +345,8 @@ int main(int argc, char *argv[])
 
 	for(int i = 0; i < numInsts; i++){
 		struct inst_priv *cur = &insts[i];
-		struct ca821x_dev *pDeviceRef = &(cur->pDeviceRef);
 		cur->mAddress = atoi(argv[i+1]);
-		cur->confirm_done = 1;
-
-		pthread_mutex_init(&(cur->confirm_mutex), NULL);
-		pthread_cond_init(&(cur->confirm_cond), NULL);
-
-		while(ca821x_util_init(pDeviceRef, &driverErrorCallback))
-		{
-			sleep(1); //Wait while there isn't a device available to connect
-		}
-		pDeviceRef->context = cur;
-
-		//Register callbacks for async messages
-		struct ca821x_api_callbacks callbacks = {0};
-		callbacks.MCPS_DATA_indication = &handleDataIndication;
-		callbacks.MCPS_DATA_confirm = &handleDataConfirm;
-		callbacks.generic_dispatch = &handleGenericDispatchFrame;
-		ca821x_register_callbacks(&callbacks, pDeviceRef);
-		exchange_register_user_callback(&handleUserCallback, pDeviceRef);
-
-		//Reset the MAC to a default state
-		MLME_RESET_request_sync(1, pDeviceRef);
-
-		uint8_t disable = 0; //Disable low LQI rejection @ MAC Layer
-		HWME_SET_request_sync(0x11, 1, &disable, pDeviceRef);
-
-		//Set up MAC pib attributes
-		uint8_t retries = 3;	//Retry transmission 3 times if not acknowledged
-		MLME_SET_request_sync(
-			macMaxFrameRetries,
-			0,
-			sizeof(retries),
-			&retries,
-			pDeviceRef);
-
-		retries = 4;	//max 4 CSMA backoffs
-		MLME_SET_request_sync(
-			macMaxCSMABackoffs,
-			0,
-			sizeof(retries),
-			&retries,
-			pDeviceRef);
-
-		uint8_t maxBE = 4;	//max BackoffExponent 4
-		MLME_SET_request_sync(
-			macMaxBE,
-			0,
-			sizeof(maxBE),
-			&maxBE,
-			pDeviceRef);
-
-		uint8_t channel = 22;
-		MLME_SET_request_sync(
-			phyCurrentChannel,
-			0,
-			sizeof(channel),
-			&channel,
-			pDeviceRef);
-
-		uint8_t LEarray[2];
-		LEarray[0] = LS0_BYTE(M_PANID);
-		LEarray[1] = LS1_BYTE(M_PANID);
-		MLME_SET_request_sync(
-			macPANId,
-			0,
-			2,
-			LEarray,
-			pDeviceRef);
-
-		LEarray[0] = LS0_BYTE(cur->mAddress);
-		LEarray[1] = LS1_BYTE(cur->mAddress);
-		MLME_SET_request_sync(
-			macShortAddress,
-			0,
-			sizeof(cur->mAddress),
-			LEarray,
-			pDeviceRef);
-
-		uint8_t rxOnWhenIdle = 1;
-		MLME_SET_request_sync( //enable Rx when Idle
-			macRxOnWhenIdle,
-			0,
-			sizeof(rxOnWhenIdle),
-			&rxOnWhenIdle,
-			pDeviceRef);
-
+		initInst(cur);
 		printf("Initialised. %d\r\n", i);
 	}
 

@@ -124,6 +124,13 @@ struct ca821x_exchange_base {
 	//Out queue = Host(us) to device
 	pthread_mutex_t in_queue_mutex, out_queue_mutex;
 	struct buffer_queue *in_buffer_queue, *out_buffer_queue;
+
+	//Error handling
+	int error;
+	int restoreflag;
+	pthread_t rescue_thread;
+	pthread_cond_t restore_cond;
+	struct buffer_queue *restore_in_buffer_queue, *restore_out_buffer_queue;
 };
 
 /** Single index in a singly-linked list of data buffers */
