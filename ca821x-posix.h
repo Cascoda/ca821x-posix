@@ -21,7 +21,19 @@
  *
  * @param[in]   errorHandler A function pointer to an error handling function.
  *                           This callback will be triggered in the event of an
- *                           unrecoverable error.
+ *                           unrecoverable error. The driver will make a best
+ *                           effort to recover the ca821x, and call this callback
+ *                           to reset the PiB to the correct state.
+ *
+ *                           This will be spawned from a seperate recovery
+ *                           thread and can be used to reset the PiB to the
+ *                           correct state. The recovery thread has special
+ *                           properties and should only be used with sync
+ *                           commands (eg. to reset pib). Any messages that
+ *                           had been requested but not actually sent will be
+ *                           sent after recovery. If a sync command was in
+ *                           progress during the crash, it will be locked until
+ *                           the recovery is complete, then completed afterwards.
  *
  * @returns 0 for success, -1 for error
  *
