@@ -79,6 +79,8 @@ static void (*dhid_free_enumeration)(struct hid_device_info *);
 static int (*dhid_read_timeout)(hid_device *, unsigned char *, size_t, int);
 static int (*dhid_write)(hid_device *, const unsigned char *, size_t);
 
+static int reload_hid_device(struct ca821x_dev *pDeviceRef);
+
 static pthread_mutex_t devs_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t devs_cond = PTHREAD_COND_INITIALIZER;
 
@@ -198,7 +200,11 @@ ssize_t usb_try_read(struct ca821x_dev *pDeviceRef,
 		delay = -1;
 	} while (assemble_frags(frag_buf, buf, &len, &offset));
 
-	if(error < 0) error = usb_exchange_err_usb;
+	if(error < 0)
+	{
+		error = -usb_exchange_err_usb;
+		reload_hid_device(pDeviceRef); //usb disconnected - attempt to grab new device
+	}
 
 	if(buf[0] == 0xF0 && buf[2] == 0xF0)
 	{
@@ -236,6 +242,7 @@ int usb_try_write(const uint8_t *buffer,
 	if (error < 0)
 	{
 		error = -usb_exchange_err_usb;
+		reload_hid_device(pDeviceRef); //usb disconnected - attempt to grab new device
 	}
 	return error;
 }
@@ -337,6 +344,45 @@ static struct hid_device_info *get_next_hid(struct hid_device_info *hid_cur)
 	}
 
 	return hid_cur;
+}
+
+static int reload_hid_device(struct ca821x_dev *pDeviceRef)
+{
+	struct usb_exchange_priv *priv = pDeviceRef->exchange_context;
+	struct hid_device_info *hid_ll = NULL, *hid_cur = NULL;
+	size_t len;
+	int error = 0;
+
+	dhid_close(priv->hid_dev);
+	free(priv->hid_path);
+	priv->hid_dev = NULL;
+	priv->hid_path = NULL;
+
+	//Iterate through compatible HIDs until one is found that hasn't already
+	//been opened.
+	hid_ll = dhid_enumerate(USB_VID, USB_PID);
+	hid_cur = get_next_hid(hid_ll);
+	while (priv->hid_dev == NULL && hid_cur != NULL)
+	{
+		priv->hid_dev = dhid_open_path(hid_cur->path);
+		if (priv->hid_dev == NULL)
+		{
+			hid_cur = get_next_hid(hid_cur->next);
+		}
+	}
+	if (hid_cur == NULL)
+	{ //Device not found
+		error = -1;
+		goto exit;
+	}
+
+	len = strlen(hid_cur->path);
+	priv->hid_path = calloc(1, len + 1);
+	strncpy(priv->hid_path, hid_cur->path, len);
+
+exit:
+	if (hid_ll) dhid_free_enumeration(hid_ll);
+	return error;
 }
 
 int usb_exchange_init_withhandler(ca821x_errorhandler callback,
