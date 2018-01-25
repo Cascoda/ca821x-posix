@@ -396,17 +396,6 @@ int ca8210_exchange_commands(
 
 	if (isSynchronous && !is_rescuer) pthread_mutex_lock(&(priv->sync_mutex));
 
-	add_to_queue(&(priv->out_buffer_queue),
-				 &(priv->out_queue_mutex),
-				 buf,
-				 len,
-				 pDeviceRef);
-
-	if (priv->signal_func)
-		priv->signal_func(pDeviceRef);
-
-	if (!isSynchronous) return 0;
-
 	while(success == 0) //Retry loop
 	{
 		//If in error state, wait until restored
@@ -416,6 +405,17 @@ int ca8210_exchange_commands(
 			pthread_cond_wait(&priv->restore_cond, &priv->flag_mutex);
 		}
 		pthread_mutex_unlock(&priv->flag_mutex);
+
+		add_to_queue(&(priv->out_buffer_queue),
+					 &(priv->out_queue_mutex),
+					 buf,
+					 len,
+					 pDeviceRef);
+
+		if (priv->signal_func)
+			priv->signal_func(pDeviceRef);
+
+		if (!isSynchronous) return 0;
 
 		//A rval of zero here is an error packet notifying of a driver error during
 		//sync command. The original command will be resent after recovery so sync

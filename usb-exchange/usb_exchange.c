@@ -353,10 +353,12 @@ static int reload_hid_device(struct ca821x_dev *pDeviceRef)
 	size_t len;
 	int error = 0;
 
+	pthread_mutex_lock(&devs_mutex);
+
 	dhid_close(priv->hid_dev);
 	free(priv->hid_path);
 	priv->hid_dev = NULL;
-	priv->hid_path = NULL;
+	priv->hid_path = "";
 
 	//Iterate through compatible HIDs until one is found that hasn't already
 	//been opened.
@@ -381,6 +383,7 @@ static int reload_hid_device(struct ca821x_dev *pDeviceRef)
 	strncpy(priv->hid_path, hid_cur->path, len);
 
 exit:
+	pthread_mutex_unlock(&devs_mutex);
 	if (hid_ll) dhid_free_enumeration(hid_ll);
 	return error;
 }

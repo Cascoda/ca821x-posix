@@ -50,7 +50,7 @@ struct inst_priv
 	uint16_t mAddress;
 	uint8_t lastHandle;
 
-	unsigned int mTx, mRx, mErr;
+	unsigned int mTx, mRx, mErr, mBadConfirm;
 };
 
 int numInsts;
@@ -135,10 +135,19 @@ static int handleDataConfirm(struct MCPS_DATA_confirm_pset *params, struct ca821
 	}
 
 	pthread_mutex_lock(confirm_mutex);
-	assert(params->MsduHandle == priv->lastHandle);
-	priv->confirm_done = 1;
-	pthread_cond_broadcast(confirm_cond);
+	if(params->MsduHandle == priv->lastHandle)
+	{
+		priv->confirm_done = 1;
+		pthread_cond_broadcast(confirm_cond);
+	}
+	else
+	{
+		pthread_mutex_lock(&out_mutex);
+		printf(COLOR_SET(RED, "Expected handle %x, got %x") "/r/n", priv->lastHandle, params->MsduHandle);
+		pthread_mutex_unlock(&out_mutex);
+	}
 	pthread_mutex_unlock(confirm_mutex);
+
 	return 0;
 }
 
