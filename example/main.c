@@ -143,7 +143,7 @@ static int handleDataConfirm(struct MCPS_DATA_confirm_pset *params, struct ca821
 	else
 	{
 		pthread_mutex_lock(&out_mutex);
-		printf(COLOR_SET(RED, "Expected handle %x, got %x") "/r/n", priv->lastHandle, params->MsduHandle);
+		printf(COLOR_SET(RED, "Expected handle %x, got %x") "\r\n", priv->lastHandle, params->MsduHandle);
 		pthread_mutex_unlock(&out_mutex);
 	}
 	pthread_mutex_unlock(confirm_mutex);
