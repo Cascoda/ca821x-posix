@@ -34,7 +34,7 @@
 
 #define M_PANID 0x1AAA
 #define M_MSDU_LENGTH 100
-#define MAX_INSTANCES 3
+#define MAX_INSTANCES 5
 #define TX_PERIOD_US 50000
 
 static uint8_t msdu[M_MSDU_LENGTH] = {1, 2, 3, 4, 5, 6, 7, 0};
@@ -328,6 +328,12 @@ int main(int argc, char *argv[])
 {
 	if(argc <= 2) return -1;
 	numInsts = argc - 1;
+
+	if(argc - 1 > MAX_INSTANCES)
+	{
+		printf("Please increase MAX_INSTANCES in main.c");
+		return -1;
+	}
 
 	for(int i = 0; i < numInsts; i++){
 		struct inst_priv *cur = &insts[i];
