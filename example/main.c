@@ -245,13 +245,12 @@ void drawTableHeader()
 	for(int i = 0; i < numInsts; i++)
 	{
 		printf("|----|----|---|---|---|---|");
-		printf("|Tx  |Rx  |Err|eRx|eTx|Rst|");
 	}
 	printf("\n");
 	printf("|----|");
 	for(int i = 0; i < numInsts; i++)
 	{
-		printf("|---" COLOR_SET(BOLDWHITE,"NODE %02d") "---|", i);
+		printf("|---------" COLOR_SET(BOLDWHITE,"NODE %02d") "---------|", i);
 	}
 	printf("\n");
 	printf("|----|");
