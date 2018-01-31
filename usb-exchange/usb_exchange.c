@@ -206,10 +206,12 @@ ssize_t usb_try_read(struct ca821x_dev *pDeviceRef,
 		reload_hid_device(pDeviceRef); //usb disconnected - attempt to grab new device
 	}
 
-	if(buf[0] == 0xF0 && buf[2] == 0xF0)
+	if(buf[0] == 0xF0)
 	{
+		fprintf(stderr, "\r\nERROR CODE 0x%02x\r\n", buf[2]);
+		fflush(stderr);
 		//Error packet indicating coprocessor has reset ca821x - let app know
-		error = -usb_exchange_err_ca821x;
+		if(buf[3]) error = -usb_exchange_err_ca821x;
 	}
 
 	if (error <= 0)
