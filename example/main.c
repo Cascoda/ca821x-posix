@@ -49,8 +49,9 @@ struct inst_priv
 	uint8_t confirm_done;
 	uint16_t mAddress;
 	uint8_t lastHandle;
+	uint16_t lastAddress;
 
-	unsigned int mTx, mSourced, mRx, mErr, mRestarts, mBadRx, mBadTx;
+	unsigned int mTx, mSourced, mRx, mAckRemote, mErr, mRestarts, mBadRx, mBadTx;
 };
 
 int numInsts;
@@ -95,7 +96,7 @@ static int driverErrorCallback(int error_number, struct ca821x_dev *pDeviceRef)
 }
 
 int handleUserCallback(const uint8_t *buf, size_t len,
-                       struct ca821x_dev *pDeviceRef)
+											 struct ca821x_dev *pDeviceRef)
 {
 	struct inst_priv *priv = pDeviceRef->context;
 
@@ -141,16 +142,16 @@ static int handleDataIndication(struct MCPS_DATA_indication_pset *params, struct
 	priv->mRx++;
 	pthread_mutex_unlock(&out_mutex);
 
-    for(int i = 0; i < numInsts; i++)
-    {
-        if(insts[i].mAddress == GETLE16(params->Src.Address))
-        {
-            pthread_mutex_lock(&out_mutex);
-            insts[i].mSourced++;
-            pthread_mutex_unlock(&out_mutex);
-            break;
-        }
-    }
+		for(int i = 0; i < numInsts; i++)
+		{
+				if(insts[i].mAddress == GETLE16(params->Src.Address))
+				{
+						pthread_mutex_lock(&out_mutex);
+						insts[i].mSourced++;
+						pthread_mutex_unlock(&out_mutex);
+						break;
+				}
+		}
 
 	return 0;
 }
@@ -165,9 +166,25 @@ static int handleDataConfirm(struct MCPS_DATA_confirm_pset *params, struct ca821
 
 	if(params->Status == MAC_SUCCESS)
 	{
+	    uint16_t dstAddr;
 		pthread_mutex_lock(&out_mutex);
 		priv->mTx++;
 		pthread_mutex_unlock(&out_mutex);
+
+		pthread_mutex_lock(priv->confirm_mutex);
+		dstAddr = priv->lastAddress;
+		pthread_mutex_unlock(priv->confirm_mutex);
+
+		for(int i = 0; i < numInsts; i++)
+		{
+			if (insts[i].mAddress == dstAddr)
+			{
+				pthread_mutex_lock(&out_mutex);
+				insts[i].mAckRemote;
+				pthread_mutex_unlock(&out_mutex);
+				break;
+			}
+		}
 	}
 	else
 	{
@@ -234,6 +251,9 @@ static void *inst_worker(void *arg)
 
 		//fire
 		dest.ShortAddress = insts[i].mAddress;
+		pthread_mutex_lock(priv->confirm_mutex);
+		priv->lastAddress = insts[i].mAddress;
+		pthread_mutex_unlock(priv->confirm_mutex);
 		TDME_SETSFR_request_sync(0, 0xdb, 0x0E, pDeviceRef);
 		MCPS_DATA_request(
 				MAC_MODE_SHORT_ADDR,
@@ -256,13 +276,13 @@ void drawTableHeader()
 	printf("|----|");
 	for(int i = 0; i < numInsts; i++)
 	{
-		printf("|----|----|----|---|---|---|---|");
+		printf("|----|----|----|----|---|---|---|---|");
 	}
 	printf("\n");
 	printf("|----|");
 	for(int i = 0; i < numInsts; i++)
 	{
-		printf("|------------" COLOR_SET(BOLDWHITE,"NODE %02d") "-----------|", i);
+		printf("|--------------" COLOR_SET(BOLDWHITE,"NODE %02d") "--------------|", i);
 	}
 	printf("\n");
 	printf("|----|");
@@ -271,17 +291,17 @@ void drawTableHeader()
 		uint8_t len = 0;
 		uint8_t leArr[2];
 		if(MLME_GET_request_sync(macShortAddress, 0, &len, leArr, &insts[i].pDeviceRef))
-        {
-            leArr[0] = 0xAD;
-            leArr[1] = 0xDE;
-        }
-		printf("|----------ShAddr %04x---------|", GETLE16(leArr));
+				{
+						leArr[0] = 0xAD;
+						leArr[1] = 0xDE;
+				}
+		printf("|------------ShAddr %04x------------|", GETLE16(leArr));
 	}
 	printf("\n");
 	printf("|TIME|");
 	for(int i = 0; i < numInsts; i++)
 	{
-		printf("|"COLOR_SET(GREEN,"Tx  ")"|Srcd|Rx  |"COLOR_SET(RED,"Err|eRx|eTx|Rst")"|");
+		printf("|"COLOR_SET(GREEN,"Tx  ")"|Srcd|Rx  |AckR|"COLOR_SET(RED,"Err|eRx|eTx|Rst")"|");
 	}
 	printf("\n");
 }
@@ -292,9 +312,9 @@ void drawTableRow(unsigned int time)
 	pthread_mutex_lock(&out_mutex);
 	for(int i = 0; i < numInsts; i++)
 	{
-		printf("|" COLOR_SET(GREEN,"%4d") "|%4d|%4d|" COLOR_SET(RED,"%3d|%3d|%3d|%3d") "|",
-		       insts[i].mTx, insts[i].mSourced, insts[i].mRx, insts[i].mErr, insts[i].mBadRx,
-		       insts[i].mBadTx, insts[i].mRestarts);
+		printf("|" COLOR_SET(GREEN,"%4d") "|%4d|%4d|%4d|" COLOR_SET(RED,"%3d|%3d|%3d|%3d") "|",
+					 insts[i].mTx, insts[i].mSourced, insts[i].mRx, insts[i].mAckRemote,
+					 insts[i].mErr, insts[i].mBadRx, insts[i].mBadTx, insts[i].mRestarts);
 	}
 	pthread_mutex_unlock(&out_mutex);
 	printf("\n");
