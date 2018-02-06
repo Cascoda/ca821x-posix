@@ -50,7 +50,7 @@ struct inst_priv
 	uint16_t mAddress;
 	uint8_t lastHandle;
 
-	unsigned int mTx, mRx, mErr, mRestarts, mBadRx, mBadTx;
+	unsigned int mTx, mSourced, mRx, mErr, mRestarts, mBadRx, mBadTx;
 };
 
 int numInsts;
@@ -140,6 +140,18 @@ static int handleDataIndication(struct MCPS_DATA_indication_pset *params, struct
 	pthread_mutex_lock(&out_mutex);
 	priv->mRx++;
 	pthread_mutex_unlock(&out_mutex);
+
+    for(int i = 0; i < numInsts; i++)
+    {
+        if(insts[i].mAddress == GETLE16(params->Src.Address))
+        {
+            pthread_mutex_lock(&out_mutex);
+            insts[i].mSourced++;
+            pthread_mutex_unlock(&out_mutex);
+            break;
+        }
+    }
+
 	return 0;
 }
 
@@ -244,13 +256,13 @@ void drawTableHeader()
 	printf("|----|");
 	for(int i = 0; i < numInsts; i++)
 	{
-		printf("|----|----|---|---|---|---|");
+		printf("|----|----|----|---|---|---|---|");
 	}
 	printf("\n");
 	printf("|----|");
 	for(int i = 0; i < numInsts; i++)
 	{
-		printf("|---------" COLOR_SET(BOLDWHITE,"NODE %02d") "---------|", i);
+		printf("|------------" COLOR_SET(BOLDWHITE,"NODE %02d") "-----------|", i);
 	}
 	printf("\n");
 	printf("|----|");
@@ -263,13 +275,13 @@ void drawTableHeader()
             leArr[0] = 0xAD;
             leArr[1] = 0xDE;
         }
-		printf("|-------ShAddr %04x-------|", GETLE16(leArr));
+		printf("|----------ShAddr %04x---------|", GETLE16(leArr));
 	}
 	printf("\n");
 	printf("|TIME|");
 	for(int i = 0; i < numInsts; i++)
 	{
-		printf("|"COLOR_SET(GREEN,"Tx  ")"|Rx  |"COLOR_SET(RED,"Err|eRx|eTx|Rst")"|");
+		printf("|"COLOR_SET(GREEN,"Tx  ")"|Srcd|Rx  |"COLOR_SET(RED,"Err|eRx|eTx|Rst")"|");
 	}
 	printf("\n");
 }
@@ -280,8 +292,8 @@ void drawTableRow(unsigned int time)
 	pthread_mutex_lock(&out_mutex);
 	for(int i = 0; i < numInsts; i++)
 	{
-		printf("|" COLOR_SET(GREEN,"%4d") "|%4d|" COLOR_SET(RED,"%3d|%3d|%3d|%3d") "|",
-		       insts[i].mTx, insts[i].mRx, insts[i].mErr, insts[i].mBadRx,
+		printf("|" COLOR_SET(GREEN,"%4d") "|%4d|%4d|" COLOR_SET(RED,"%3d|%3d|%3d|%3d") "|",
+		       insts[i].mTx, insts[i].mSourced, insts[i].mRx, insts[i].mErr, insts[i].mBadRx,
 		       insts[i].mBadTx, insts[i].mRestarts);
 	}
 	pthread_mutex_unlock(&out_mutex);
