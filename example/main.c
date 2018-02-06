@@ -258,7 +258,11 @@ void drawTableHeader()
 	{
 		uint8_t len = 0;
 		uint8_t leArr[2];
-		MLME_GET_request_sync(macShortAddress, 0, &len, leArr, &insts[i].pDeviceRef);
+		if(MLME_GET_request_sync(macShortAddress, 0, &len, leArr, &insts[i].pDeviceRef))
+        {
+            leArr[0] = 0xAD;
+            leArr[1] = 0xDE;
+        }
 		printf("|-------ShAddr %04x-------|", GETLE16(leArr));
 	}
 	printf("\n");

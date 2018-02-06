@@ -234,14 +234,10 @@ static void *ca821x_recovery_worker(void *arg)
 	pthread_mutex_unlock(&priv->flag_mutex);
 
 	//Swap contents restore buffers back into queues:
-	reseat_queue(&priv->restore_out_buffer_queue,
-	             &priv->out_buffer_queue,
-	             &priv->out_queue_mutex,
+	flush_queue(&priv->out_buffer_queue,
 	             &priv->out_queue_mutex);
 
-	reseat_queue(&priv->restore_in_buffer_queue,
-	             &priv->in_buffer_queue,
-	             &priv->in_queue_mutex,
+	flush_queue(&priv->in_buffer_queue,
 	             &priv->in_queue_mutex);
 
 	//Signal the sync queue just in case there is something waiting
@@ -348,12 +344,6 @@ void *ca8210_io_worker(void *arg)
 			error = priv->write_func(buffer, len, pDeviceRef);
 			if (error < 0)
 			{
-				//Add to restore queue for sending later
-				add_to_queue(&(priv->restore_out_buffer_queue),
-				             &(priv->out_queue_mutex),
-				             buffer,
-				             len,
-				             pDeviceRef);
 				exchange_handle_error(error, pDeviceRef);
 			}
 		}
