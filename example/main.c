@@ -171,16 +171,16 @@ static int handleDataConfirm(struct MCPS_DATA_confirm_pset *params, struct ca821
 		priv->mTx++;
 		pthread_mutex_unlock(&out_mutex);
 
-		pthread_mutex_lock(priv->confirm_mutex);
+		pthread_mutex_lock(confirm_mutex);
 		dstAddr = priv->lastAddress;
-		pthread_mutex_unlock(priv->confirm_mutex);
+		pthread_mutex_unlock(confirm_mutex);
 
 		for(int i = 0; i < numInsts; i++)
 		{
 			if (insts[i].mAddress == dstAddr)
 			{
 				pthread_mutex_lock(&out_mutex);
-				insts[i].mAckRemote;
+				insts[i].mAckRemote++;
 				pthread_mutex_unlock(&out_mutex);
 				break;
 			}
@@ -251,9 +251,9 @@ static void *inst_worker(void *arg)
 
 		//fire
 		dest.ShortAddress = insts[i].mAddress;
-		pthread_mutex_lock(priv->confirm_mutex);
+		pthread_mutex_lock(confirm_mutex);
 		priv->lastAddress = insts[i].mAddress;
-		pthread_mutex_unlock(priv->confirm_mutex);
+		pthread_mutex_unlock(confirm_mutex);
 		TDME_SETSFR_request_sync(0, 0xdb, 0x0E, pDeviceRef);
 		MCPS_DATA_request(
 				MAC_MODE_SHORT_ADDR,
