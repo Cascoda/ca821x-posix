@@ -135,20 +135,19 @@ int handleUserCallback(const uint8_t *buf, size_t len,
 	{
 		uint16_t addr;
 		pthread_mutex_lock(&out_mutex);
-		printf("DUMP: (n%da%x:", priv - insts, priv->mAddress);
 		switch(buf[2])
 		{
 		case 0:
-			printf("XDATA:");
+			printf("XDATAn%d ", priv - insts);
 			break;
 		case 1:
-			printf("IDATA:");
+			printf("IDATAn%d ", priv - insts);
 			break;
 		case 2:
-			printf("DATA:");
+			printf("DATAn%d ", priv - insts);
 			break;
 		default:
-			printf("ERROR:");
+			printf("ERRORn%d ", priv - insts);
 			break;
 		}
 		printf("[%x]", GETLE16(buf+3));
