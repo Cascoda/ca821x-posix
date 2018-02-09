@@ -131,6 +131,36 @@ int handleUserCallback(const uint8_t *buf, size_t len,
 		fprintf(stderr, "IN %04x: %.*s\n", priv->mAddress, len - 2, buf + 2);
 		return 1;
 	}
+	else if(buf[0] == 0xA1)
+	{
+		uint16_t addr;
+		pthread_mutex_lock(&out_mutex);
+		printf("DUMP: (n%da%x:", priv - insts, priv->mAddress);
+		switch(buf[2])
+		{
+		case 0:
+			printf("XDATA:");
+			break;
+		case 1:
+			printf("IDATA:");
+			break;
+		case 2:
+			printf("DATA:");
+			break;
+		default:
+			printf("ERROR:");
+			break;
+		}
+		printf("[%x]", GETLE16(buf+3));
+
+		for(int i = 0; i < buf[1]; i++)
+		{
+			printf("%02x", buf[5+i]);
+		}
+		printf("\n");
+
+		pthread_mutex_unlock(&out_mutex);
+	}
 	return 0;
 }
 
