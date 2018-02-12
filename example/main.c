@@ -152,7 +152,7 @@ int handleUserCallback(const uint8_t *buf, size_t len,
 		}
 		printf("[%x]", GETLE16(buf+3));
 
-		for(int i = 0; i < buf[1]; i++)
+		for(int i = 0; i < buf[1]-3; i++)
 		{
 			printf("%02x", buf[5+i]);
 		}
