@@ -477,6 +477,7 @@ int main(int argc, char *argv[])
 		struct ca821x_api_callbacks callbacks = {0};
 		callbacks.MCPS_DATA_indication = &handleDataIndication;
 		callbacks.MCPS_DATA_confirm = &handleDataConfirm;
+		callbacks.MLME_COMM_STATUS_indication = &handleCommStatusIndication;
 		callbacks.generic_dispatch = &handleGenericDispatchFrame;
 		ca821x_register_callbacks(&callbacks, pDeviceRef);
 		exchange_register_user_callback(&handleUserCallback, pDeviceRef);
