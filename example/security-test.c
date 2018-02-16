@@ -435,6 +435,7 @@ void initInst(struct inst_priv *cur)
 	kd.KeyDeviceList[0].Flags = 1;
 	kd.KeyUsageList[0].Flags = MAC_FC_FT_DATA;
 	memset(kd.KeyIdLookupList[0].LookupData, 0xFF, 9);
+	kd.KeyIdLookupList[0].LookupDataSizeCode = 1;
 
 	MLME_SET_request_sync(macKeyTableEntries, 0, 1, LEarray, pDeviceRef);
 
