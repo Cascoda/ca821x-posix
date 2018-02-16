@@ -215,7 +215,37 @@ static int handleDataConfirm(struct MCPS_DATA_confirm_pset *params, struct ca821
 
 static int handleCommStatusIndication(struct MLME_COMM_STATUS_indication_pset *params, struct ca821x_dev *pDeviceRef)
 {
-	fprintf(stderr, "COMM-STATUS.indication status %x\n", params->Status);
+	fprintf(stderr, "COMM-STATUS.indication status %x, kID %d, kInd %d\n",
+	        params->Status,
+	        params->Security.KeyIdMode,
+	        params->Security.KeyIndex);
+
+	for(int i = 0; i < 2; i++)
+	{
+		struct M_DeviceDescriptor dd;
+		uint8_t len;
+		MLME_GET_request_sync(macDeviceTable, i, &len, &dd, pDeviceRef);
+
+		fprintf(stderr, "DD: fc %x, shaddr %x\n", GETLE32(dd.FrameCounter), GETLE16(dd.ShortAddress));
+	}
+
+	struct M_KeyDescriptor_st {
+		struct M_KeyTableEntryFixed    Fixed;
+		struct M_KeyIdLookupDesc       KeyIdLookupList[1];
+		struct M_KeyDeviceDesc         KeyDeviceList[1];
+		struct M_KeyUsageDesc          KeyUsageList[1];
+	} kd = {0};
+
+	for(int i = 0; i < 2; i++)
+	{
+		uint8_t len;
+		MLME_GET_request_sync(macKeyTable, i, &len, &kd, pDeviceRef);
+		printf("KLE%d KDE%d KUE%d KDL%x\n",
+		       kd.Fixed.KeyIdLookupListEntries,
+		       kd.Fixed.KeyDeviceListEntries,
+		       kd.Fixed.KeyUsageListEntries,
+		       kd.KeyDeviceList[0]);
+	}
 
 	return 1;
 }
