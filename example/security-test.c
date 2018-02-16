@@ -399,6 +399,9 @@ void initInst(struct inst_priv *cur)
 		&rxOnWhenIdle,
 		pDeviceRef);
 
+	uint8_t se = 1;
+	MLME_SET_request_sync(macSecurityEnabled, 0, sizeof(se), &se, pDeviceRef);
+
 	struct M_DeviceDescriptor dd = {0};
 
 	if(cur != insts) //making for 1
