@@ -178,7 +178,7 @@ static int handleDataConfirm(struct MCPS_DATA_confirm_pset *params, struct ca821
 		count = priv->mTx;
 		pthread_mutex_unlock(&out_mutex);
 
-		if(count == 500)
+		if(count == 200)
 		{
 			uint8_t zeros[4] = {0};
 			priv->mSecSpec.KeyIndex = 1;
@@ -404,6 +404,7 @@ void initInst(struct inst_priv *cur)
 
 	struct M_DeviceDescriptor dd = {0};
 
+	PUTLE16(M_PANID, dd.PANId);
 	if(cur != insts) //making for 1
 	{
 		memcpy(dd.ExtAddress, addr1, 8);
