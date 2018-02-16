@@ -431,14 +431,12 @@ void initInst(struct inst_priv *cur)
 	struct M_KeyDescriptor_st {
 		struct M_KeyTableEntryFixed    Fixed;
 		struct M_KeyIdLookupDesc       KeyIdLookupList[1];
-		struct M_KeyDeviceDesc         KeyDeviceList[2];
+		struct M_KeyDeviceDesc         KeyDeviceList[1];
 		struct M_KeyUsageDesc          KeyUsageList[1];
 	} kd = {0};
 	kd.Fixed.KeyIdLookupListEntries = 1;
-	kd.Fixed.KeyDeviceListEntries = 2;
+	kd.Fixed.KeyDeviceListEntries = 1;
 	kd.Fixed.KeyUsageListEntries = 1;
-	kd.KeyDeviceList[0].Flags = 0;
-	kd.KeyDeviceList[0].Flags = 1;
 	kd.KeyUsageList[0].Flags = MAC_FC_FT_DATA;
 	memset(kd.KeyIdLookupList[0].LookupData, 0xFF, 9);
 	kd.KeyIdLookupList[0].LookupDataSizeCode = 1;
@@ -451,6 +449,7 @@ void initInst(struct inst_priv *cur)
 		else memcpy(kd.Fixed.Key, key2, 16);
 
 		kd.KeyIdLookupList[0].LookupData[0] = i;
+		kd.KeyDeviceList[0].Flags = i;
 
 		MLME_SET_request_sync(macKeyTable, i, sizeof(kd), &kd, pDeviceRef);
 	}
