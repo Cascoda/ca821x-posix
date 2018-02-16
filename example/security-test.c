@@ -1,0 +1,501 @@
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <stdint.h>
+#include <unistd.h>
+#include <pthread.h>
+#include <assert.h>
+#include <signal.h>
+
+#include "../ca821x-posix.h"
+
+/* Colour codes for printf */
+#ifndef NO_COLOR
+#define RED        "\x1b[31m"
+#define GREEN      "\x1b[32m"
+#define YELLOW     "\x1b[33m"
+#define BLUE       "\x1b[34m"
+#define MAGENTA    "\x1b[35m"
+#define CYAN       "\x1b[36m"
+#define BOLDWHITE  "\033[1m\033[37m"
+#define RESET      "\x1b[0m"
+#else
+#define RED        ""
+#define GREEN      ""
+#define YELLOW     ""
+#define BLUE       ""
+#define MAGENTA    ""
+#define CYAN       ""
+#define BOLDWHITE  ""
+#define RESET      ""
+#endif
+
+#define COLOR_SET(C,X) C X RESET
+
+#define M_PANID 0x5ECC
+#define M_MSDU_LENGTH 100
+#define MAX_INSTANCES 5
+#define TX_PERIOD_US 50000
+#define CHANNEL 24
+
+static uint8_t msdu[M_MSDU_LENGTH] = {1, 2, 3, 4, 5, 6, 7, 0};
+
+uint8_t key1[] = {0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
+uint8_t key2[] = {0x0f, 0x0e, 0x0d, 0x0c, 0x0b, 0x0a, 0x09, 0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01, 0x00};
+
+uint8_t addr1[] = {0xBE, 0xEF, 0xEA, 0x7E, 0x50, 0x57, 0xEA, 0x35};
+uint8_t addr2[] = {0xFA, 0xCE, 0x0F, 0xFF, 0xFA, 0xCE, 0x17, 0x00};
+
+uint16_t saddr1 = 0xBEEF;
+uint16_t saddr2 = 0xFACE;
+
+struct inst_priv
+{
+	struct ca821x_dev pDeviceRef;
+	pthread_mutex_t confirm_mutex;
+	pthread_cond_t confirm_cond;
+	pthread_t mWorker;
+	uint8_t confirm_done;
+	uint16_t mAddress;
+	uint8_t lastHandle;
+	uint16_t lastAddress;
+
+	struct SecSpec mSecSpec = {0};
+	unsigned int mTx, mRx, mErr;
+};
+
+int numInsts;
+struct inst_priv insts[MAX_INSTANCES] = {};
+
+pthread_mutex_t out_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+void initInst(struct inst_priv *cur);
+
+static void quit(int sig)
+{
+	for(int i = 0; i < numInsts; i++){
+		pthread_cancel(insts[i].mWorker);
+		pthread_join(insts[i].mWorker, NULL);
+	}
+	exit(0);
+}
+
+static int driverErrorCallback(int error_number, struct ca821x_dev *pDeviceRef)
+{
+	struct inst_priv *priv = pDeviceRef->context;
+	pthread_mutex_t *confirm_mutex = &(priv->confirm_mutex);
+	pthread_cond_t *confirm_cond = &(priv->confirm_cond);
+
+	printf( COLOR_SET(RED,"DRIVER FAILED FOR %x WITH ERROR %d") "\n\r" , priv->mAddress, error_number);
+	printf( COLOR_SET(BLUE,"Attempting restart...") "\n\r");
+
+	initInst(priv);
+
+	printf( COLOR_SET(GREEN,"Restart successful!") "\n\r");
+
+	pthread_mutex_lock(confirm_mutex);
+	priv->confirm_done = 1;
+	pthread_cond_broadcast(confirm_cond);
+	pthread_mutex_unlock(confirm_mutex);
+
+	return 0;
+}
+
+int handleUserCallback(const uint8_t *buf, size_t len,
+											 struct ca821x_dev *pDeviceRef)
+{
+	struct inst_priv *priv = pDeviceRef->context;
+
+	if (buf[0] == 0xA0)
+	{
+		if(strstr(buf+2, "dispatching on SPI") != NULL)
+		{
+			//spam
+			return 1;
+		}
+
+		fprintf(stderr, "IN %04x: %.*s\n", priv->mAddress, len - 2, buf + 2);
+		return 1;
+	}
+	else if(buf[0] == 0xA1)
+	{
+		uint16_t addr;
+		pthread_mutex_lock(&out_mutex);
+		switch(buf[2])
+		{
+		case 0:
+			printf("XDATAn%d ", priv - insts);
+			break;
+		case 1:
+			printf("IDATAn%d ", priv - insts);
+			break;
+		case 2:
+			printf("DATAn%d ", priv - insts);
+			break;
+		default:
+			printf("ERRORn%d ", priv - insts);
+			break;
+		}
+		printf("[%x]", GETLE16(buf+3));
+
+		for(int i = 0; i < buf[1]-3; i++)
+		{
+			printf("%02x", buf[5+i]);
+		}
+		printf("\n");
+
+		pthread_mutex_unlock(&out_mutex);
+	}
+	return 0;
+}
+
+
+static int handleDataIndication(struct MCPS_DATA_indication_pset *params, struct ca821x_dev *pDeviceRef)   //Async
+{
+	struct inst_priv *priv = pDeviceRef->context;
+	pthread_mutex_lock(&out_mutex);
+	priv->mRx++;
+	pthread_mutex_unlock(&out_mutex);
+
+	return 0;
+}
+
+static int handleDataConfirm(struct MCPS_DATA_confirm_pset *params, struct ca821x_dev *pDeviceRef)   //Async
+{
+	struct inst_priv *priv = pDeviceRef->context;
+	pthread_mutex_t *confirm_mutex = &(priv->confirm_mutex);
+	pthread_cond_t *confirm_cond = &(priv->confirm_cond);
+
+	TDME_SETSFR_request_sync(0, 0xdb, 0x0A, pDeviceRef);
+
+	if(params->Status == MAC_SUCCESS)
+	{
+	    uint16_t dstAddr;
+	    uint16_t count;
+		pthread_mutex_lock(&out_mutex);
+		priv->mTx++;
+		count = priv->mTx;
+		pthread_mutex_unlock(&out_mutex);
+
+		if(count == 500)
+		{
+			uint8_t zeros[4] = {0};
+			priv->mSecSpec.KeyIndex = 1;
+			MLME_SET_request_sync(macFrameCounter, 0, 4, zeros, pDeviceRef);
+		}
+
+		pthread_mutex_lock(confirm_mutex);
+		dstAddr = priv->lastAddress;
+		pthread_mutex_unlock(confirm_mutex);
+	}
+	else
+	{
+		pthread_mutex_lock(&out_mutex);
+		priv->mErr++;
+		pthread_mutex_unlock(&out_mutex);
+	}
+
+	pthread_mutex_lock(confirm_mutex);
+	if(params->MsduHandle == priv->lastHandle)
+	{
+		priv->confirm_done = 1;
+		pthread_cond_broadcast(confirm_cond);
+	}
+	else
+	{
+		pthread_mutex_lock(&out_mutex);
+		printf(COLOR_SET(RED, "Dev %x: Expected handle %x, got %x") "\r\n", priv->mAddress, priv->lastHandle, params->MsduHandle);
+		pthread_mutex_unlock(&out_mutex);
+	}
+	pthread_mutex_unlock(confirm_mutex);
+
+	return 0;
+}
+
+static int handleCommStatusIndication(struct MLME_COMM_STATUS_indication_pset *params, struct ca821x_dev *pDeviceRef)
+{
+	fprintf(stderr, "COMM-STATUS.indication status %x\n", params->Status);
+
+	return 1;
+}
+
+static int handleGenericDispatchFrame(const uint8_t *buf, size_t len, struct ca821x_dev *pDeviceRef)   //Async
+{
+
+	/*
+	 * This is a debugging function for unhandled incoming MAC data
+	 */
+
+	return 0;
+}
+
+static void *inst_worker(void *arg)
+{
+	struct inst_priv *priv = arg;
+	struct ca821x_dev *pDeviceRef = &(priv->pDeviceRef);
+
+	pthread_mutex_t *confirm_mutex = &(priv->confirm_mutex);
+	pthread_cond_t *confirm_cond = &(priv->confirm_cond);
+
+	uint16_t i = 0;
+	while(1)
+	{
+		union MacAddr dest;
+
+		do{
+			i = (i+1) % numInsts;
+		} while(&insts[i] == priv);
+		//wait for confirm & reset
+		pthread_mutex_lock(confirm_mutex);
+		while(!priv->confirm_done) pthread_cond_wait(confirm_cond, confirm_mutex);
+		priv->confirm_done = 0;
+		priv->lastHandle++;
+		pthread_mutex_unlock(confirm_mutex);
+
+		pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+
+		usleep(TX_PERIOD_US);
+
+		pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
+
+		//fire
+		dest.ShortAddress = insts[i].mAddress;
+		pthread_mutex_lock(confirm_mutex);
+		priv->lastAddress = insts[i].mAddress;
+		pthread_mutex_unlock(confirm_mutex);
+		TDME_SETSFR_request_sync(0, 0xdb, 0x0E, pDeviceRef);
+		MCPS_DATA_request(
+				MAC_MODE_SHORT_ADDR,
+				MAC_MODE_SHORT_ADDR,
+				M_PANID,
+				&dest,
+				M_MSDU_LENGTH,
+				msdu,
+				priv->lastHandle,
+				0x01,
+				&priv->mSecSpec,
+				pDeviceRef
+				);
+	}
+	return NULL;
+}
+
+void drawTableHeader()
+{
+	printf("|----|");
+	for(int i = 0; i < numInsts; i++)
+	{
+		printf("|----|----|---|");
+	}
+	printf("\n");
+	printf("|----|");
+	for(int i = 0; i < numInsts; i++)
+	{
+		printf("|---" COLOR_SET(BOLDWHITE,"NODE %02d") "---|", i);
+	}
+	printf("\n");
+	printf("|----|");
+	for (int i = 0; i < numInsts; i++)
+	{
+		uint8_t len = 0;
+		uint8_t leArr[2];
+		if(MLME_GET_request_sync(macShortAddress, 0, &len, leArr, &insts[i].pDeviceRef))
+				{
+						leArr[0] = 0xAD;
+						leArr[1] = 0xDE;
+				}
+		printf("|-ShAddr %04x-|", GETLE16(leArr));
+	}
+	printf("\n");
+	printf("|TIME|");
+	for(int i = 0; i < numInsts; i++)
+	{
+		printf("|"COLOR_SET(GREEN,"Tx  ")"|Rx  |"COLOR_SET(RED,"Err")"|");
+	}
+	printf("\n");
+}
+
+void drawTableRow(unsigned int time)
+{
+	printf("|%4d|", time);
+	pthread_mutex_lock(&out_mutex);
+	for(int i = 0; i < numInsts; i++)
+	{
+		printf("|" COLOR_SET(GREEN,"%4d") "|%4d|" COLOR_SET(RED,"%3d") "|",
+					 insts[i].mTx, insts[i].mRx, insts[i].mErr);
+	}
+	pthread_mutex_unlock(&out_mutex);
+	printf("\n");
+}
+
+void initInst(struct inst_priv *cur)
+{
+	struct ca821x_dev *pDeviceRef = &(cur->pDeviceRef);
+
+	//Reset the MAC to a default state
+	MLME_RESET_request_sync(1, pDeviceRef);
+
+	uint8_t disable = 0; //Disable low LQI rejection @ MAC Layer
+	HWME_SET_request_sync(0x11, 1, &disable, pDeviceRef);
+
+	//Set up MAC pib attributes
+	uint8_t retries = 3;	//Retry transmission 3 times if not acknowledged
+	MLME_SET_request_sync(
+		macMaxFrameRetries,
+		0,
+		sizeof(retries),
+		&retries,
+		pDeviceRef);
+
+	retries = 4;	//max 4 CSMA backoffs
+	MLME_SET_request_sync(
+		macMaxCSMABackoffs,
+		0,
+		sizeof(retries),
+		&retries,
+		pDeviceRef);
+
+	uint8_t maxBE = 4;	//max BackoffExponent 4
+	MLME_SET_request_sync(
+		macMaxBE,
+		0,
+		sizeof(maxBE),
+		&maxBE,
+		pDeviceRef);
+
+	uint8_t channel = CHANNEL;
+	MLME_SET_request_sync(
+		phyCurrentChannel,
+		0,
+		sizeof(channel),
+		&channel,
+		pDeviceRef);
+
+	uint8_t LEarray[2];
+	LEarray[0] = LS0_BYTE(M_PANID);
+	LEarray[1] = LS1_BYTE(M_PANID);
+	MLME_SET_request_sync(
+		macPANId,
+		0,
+		2,
+		LEarray,
+		pDeviceRef);
+
+	LEarray[0] = LS0_BYTE(cur->mAddress);
+	LEarray[1] = LS1_BYTE(cur->mAddress);
+	MLME_SET_request_sync(
+		macShortAddress,
+		0,
+		sizeof(cur->mAddress),
+		LEarray,
+		pDeviceRef);
+
+	uint8_t rxOnWhenIdle = 1;
+	MLME_SET_request_sync( //enable Rx when Idle
+		macRxOnWhenIdle,
+		0,
+		sizeof(rxOnWhenIdle),
+		&rxOnWhenIdle,
+		pDeviceRef);
+
+	struct M_DeviceDescriptor dd = {0};
+
+	if(cur != insts) //making for 1
+	{
+		memcpy(dd.ExtAddress, addr1, 8);
+		PUTLE16(saddr1, dd.ShortAddress);
+	}
+	else
+	{
+		memcpy(dd.ExtAddress, addr2, 8);
+		PUTLE16(saddr2, dd.ShortAddress);
+	}
+
+	LEarray[0] = 2;
+	MLME_SET_request_sync(macDeviceTableEntries, 0, 1, LEarray, pDeviceRef);
+
+	for(int i = 0; i < 2; i++){
+		MLME_SET_request_sync(macDeviceTable, i, sizeof(dd), &dd, pDeviceRef);
+	}
+
+	struct M_KeyDescriptor_st {
+		struct M_KeyTableEntryFixed    Fixed;
+		struct M_KeyIdLookupDesc       KeyIdLookupList[1];
+		struct M_KeyDeviceDesc         KeyDeviceList[2];
+		struct M_KeyUsageDesc          KeyUsageList[1];
+	} kd = {0};
+	kd.Fixed.KeyIdLookupListEntries = 1;
+	kd.Fixed.KeyDeviceListEntries = 2;
+	kd.Fixed.KeyUsageListEntries = 1;
+	kd.KeyDeviceList[0].Flags = 0;
+	kd.KeyDeviceList[0].Flags = 1;
+	kd.KeyUsageList[0].Flags = MAC_FC_FT_DATA;
+	memset(kd.KeyIdLookupList[0].LookupData, 9);
+
+	MLME_SET_request_sync(macKeyTableEntries, 0, 1, LEarray, pDeviceRef);
+
+	for(int i = 0; i < 2; i++)
+	{
+		if(i == 0) memcpy(kd.Fixed.Key, key1, 16);
+		else memcpy(kd.Fixed.Key, key2, 16);
+
+		kd.KeyIdLookupList[0].LookupData[0] = i;
+
+		MLME_SET_request_sync(macKeyTable, i, sizeof(kd), &kd, pDeviceRef);
+	}
+}
+
+int main(int argc, char *argv[])
+{
+	numInsts = 2;
+
+	for(int i = 0; i < numInsts; i++){
+		struct inst_priv *cur = &insts[i];
+		struct ca821x_dev *pDeviceRef = &(cur->pDeviceRef);
+		cur->mAddress = atoi(argv[i+1]);
+		cur->confirm_done = 1;
+		cur->mSecSpec.KeyIdMode = 1;
+		cur->mSecSpec.KeyIndex = 0;
+		cur->mSecSpec.SecurityLevel = 0x05;
+
+		pthread_mutex_init(&(cur->confirm_mutex), NULL);
+		pthread_cond_init(&(cur->confirm_cond), NULL);
+
+		while(ca821x_util_init(pDeviceRef, &driverErrorCallback))
+		{
+			sleep(1); //Wait while there isn't a device available to connect
+		}
+		pDeviceRef->context = cur;
+
+		//Register callbacks for async messages
+		struct ca821x_api_callbacks callbacks = {0};
+		callbacks.MCPS_DATA_indication = &handleDataIndication;
+		callbacks.MCPS_DATA_confirm = &handleDataConfirm;
+		callbacks.generic_dispatch = &handleGenericDispatchFrame;
+		ca821x_register_callbacks(&callbacks, pDeviceRef);
+		exchange_register_user_callback(&handleUserCallback, pDeviceRef);
+
+		initInst(cur);
+		printf("Initialised. %d\r\n", i);
+	}
+
+	for(int i = 0; i < numInsts; i++)
+	{
+		pthread_create(&(insts[i].mWorker), NULL, &inst_worker, &insts[i]);
+	}
+
+	signal(SIGINT, quit);
+
+	//Draw the table onscreen every second
+	unsigned int time = 0;
+	while(1)
+	{
+		if((time % 20) == 0) drawTableHeader();
+		drawTableRow(time);
+		sleep(1);
+		time++;
+	}
+
+	return 0;
+}
+
