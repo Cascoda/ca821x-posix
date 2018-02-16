@@ -6,6 +6,7 @@
 #include <pthread.h>
 #include <assert.h>
 #include <signal.h>
+#include <string.h>
 
 #include "../ca821x-posix.h"
 
@@ -60,7 +61,7 @@ struct inst_priv
 	uint8_t lastHandle;
 	uint16_t lastAddress;
 
-	struct SecSpec mSecSpec = {0};
+	struct SecSpec mSecSpec;
 	unsigned int mTx, mRx, mErr;
 };
 
@@ -171,7 +172,7 @@ static int handleDataConfirm(struct MCPS_DATA_confirm_pset *params, struct ca821
 	if(params->Status == MAC_SUCCESS)
 	{
 	    uint16_t dstAddr;
-	    uint16_t count;
+	    unsigned int count;
 		pthread_mutex_lock(&out_mutex);
 		priv->mTx++;
 		count = priv->mTx;
@@ -430,7 +431,7 @@ void initInst(struct inst_priv *cur)
 	kd.KeyDeviceList[0].Flags = 0;
 	kd.KeyDeviceList[0].Flags = 1;
 	kd.KeyUsageList[0].Flags = MAC_FC_FT_DATA;
-	memset(kd.KeyIdLookupList[0].LookupData, 9);
+	memset(kd.KeyIdLookupList[0].LookupData, 0xFF, 9);
 
 	MLME_SET_request_sync(macKeyTableEntries, 0, 1, LEarray, pDeviceRef);
 
@@ -452,7 +453,8 @@ int main(int argc, char *argv[])
 	for(int i = 0; i < numInsts; i++){
 		struct inst_priv *cur = &insts[i];
 		struct ca821x_dev *pDeviceRef = &(cur->pDeviceRef);
-		cur->mAddress = atoi(argv[i+1]);
+		if(i==0) cur->mAddress = saddr1;
+		else cur->mAddress = saddr2;
 		cur->confirm_done = 1;
 		cur->mSecSpec.KeyIdMode = 1;
 		cur->mSecSpec.KeyIndex = 0;
