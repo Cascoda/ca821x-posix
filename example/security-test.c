@@ -391,6 +391,11 @@ void initInst(struct inst_priv *cur)
 		LEarray,
 		pDeviceRef);
 
+	if(cur == insts) //making for 1
+		MLME_SET_request_sync(nsIEEEAddress, 0, 8, addr1, pDeviceRef);
+	else
+		MLME_SET_request_sync(nsIEEEAddress, 0, 8, addr2, pDeviceRef);
+
 	uint8_t rxOnWhenIdle = 1;
 	MLME_SET_request_sync( //enable Rx when Idle
 		macRxOnWhenIdle,
