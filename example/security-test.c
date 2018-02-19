@@ -173,8 +173,8 @@ static int handleDataIndication(struct MCPS_DATA_indication_pset *params, struct
 
 	if(new_mode)
 	{
-		struct SecSpec *curSecSpec = (struct SecSpec *)
-			((unsigned int)params + params->MsduLength + 29); //Location defined in cascoda API docs
+		struct SecSpec *curSecSpec =
+			(struct SecSpec *) (&(params->Msdu[params->MsduLength])); //Location defined in cascoda API docs
 
 		struct M_KeyDescriptor_st kd;
 		struct M_DeviceDescriptor dd;
@@ -184,14 +184,14 @@ static int handleDataIndication(struct MCPS_DATA_indication_pset *params, struct
 		{
 			//Remove KDD from old KD
 			MLME_GET_request_sync(macKeyTable, priv->incKeyIndex, &len, &kd, pDeviceRef);
-			kd->Fixed.KeyDeviceListEntries = 0;
-			kd->KeyDeviceList[0].Flags = kd->KeyUsageList[0].Flags;
+			kd.Fixed.KeyDeviceListEntries = 0;
+			kd.KeyDeviceList[0].Flags = kd.KeyUsageList[0].Flags;
 			MLME_SET_request_sync(macKeyTable, priv->incKeyIndex, len-1, &kd, pDeviceRef);
 
 			//reset the frame counter of DD
 			MLME_GET_request_sync(macDeviceTable, 0, &len, &dd, pDeviceRef);
 			uint32_t fc = GETLE32(params->TimeStamp) + 1;
-			PUTLE32(fc, dd->FrameCounter);
+			PUTLE32(fc, dd.FrameCounter);
 			MLME_SET_request_sync(macDeviceTable, 0, len, &dd, pDeviceRef);
 
 			priv->incKeyIndex = curSecSpec->KeyIndex;
