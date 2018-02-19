@@ -122,32 +122,31 @@ int handleUserCallback(const uint8_t *buf, size_t len,
 
 	if (buf[0] == 0xA0)
 	{
-		if(strstr(buf+2, "dispatching on SPI") != NULL)
+		if(strstr((char*)(buf+2), "dispatching on SPI") != NULL)
 		{
 			//spam
 			return 1;
 		}
 
-		fprintf(stderr, "IN %04x: %.*s\n", priv->mAddress, len - 2, buf + 2);
+		fprintf(stderr, "IN %04x: %.*s\n", priv->mAddress, (int)(len - 2), buf + 2);
 		return 1;
 	}
 	else if(buf[0] == 0xA1)
 	{
-		uint16_t addr;
 		pthread_mutex_lock(&out_mutex);
 		switch(buf[2])
 		{
 		case 0:
-			printf("XDATAn%d ", priv - insts);
+			printf("XDATAn%d ", (int)(priv - insts));
 			break;
 		case 1:
-			printf("IDATAn%d ", priv - insts);
+			printf("IDATAn%d ", (int)(priv - insts));
 			break;
 		case 2:
-			printf("DATAn%d ", priv - insts);
+			printf("DATAn%d ", (int)(priv - insts));
 			break;
 		default:
-			printf("ERRORn%d ", priv - insts);
+			printf("ERRORn%d ", (int)(priv - insts));
 			break;
 		}
 		printf("[%x]", GETLE16(buf+3));
@@ -211,7 +210,6 @@ static int handleDataConfirm(struct MCPS_DATA_confirm_pset *params, struct ca821
 
 	if(params->Status == MAC_SUCCESS)
 	{
-	    uint16_t dstAddr;
 	    unsigned int count;
 		pthread_mutex_lock(&out_mutex);
 		priv->mTx++;
@@ -224,10 +222,6 @@ static int handleDataConfirm(struct MCPS_DATA_confirm_pset *params, struct ca821
 			priv->mSecSpec.KeyIndex = 1;
 			MLME_SET_request_sync(macFrameCounter, 0, 4, zeros, pDeviceRef);
 		}
-
-		pthread_mutex_lock(confirm_mutex);
-		dstAddr = priv->lastAddress;
-		pthread_mutex_unlock(confirm_mutex);
 	}
 	else
 	{
@@ -279,7 +273,7 @@ static int handleCommStatusIndication(struct MLME_COMM_STATUS_indication_pset *p
 		       kd.Fixed.KeyIdLookupListEntries,
 		       kd.Fixed.KeyDeviceListEntries,
 		       kd.Fixed.KeyUsageListEntries,
-		       kd.KeyDeviceList[0]);
+		       kd.KeyDeviceList[0].Flags);
 	}
 
 	return 1;

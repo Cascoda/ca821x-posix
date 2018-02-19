@@ -6,6 +6,7 @@
 #include <pthread.h>
 #include <assert.h>
 #include <signal.h>
+#include <string.h>
 
 #include "../ca821x-posix.h"
 
@@ -102,8 +103,8 @@ int handleUserCallback(const uint8_t *buf, size_t len,
 
 	if (buf[0] == 0xA0)
 	{
-		if (strstr(buf+2, "Erroneous rx from ") != NULL) {
-			int from = strtol(buf+20, NULL, 16);
+		if (strstr((char*)(buf+2), "Erroneous rx from ") != NULL) {
+			int from = strtol((char*)(buf+20), NULL, 16);
 
 			pthread_mutex_lock(&out_mutex);
 			priv->mBadRx++;
@@ -122,32 +123,31 @@ int handleUserCallback(const uint8_t *buf, size_t len,
 			return 1;
 		}
 
-		if(strstr(buf+2, "dispatching on SPI") != NULL)
+		if(strstr((char*)(buf+2), "dispatching on SPI") != NULL)
 		{
 			//spam
 			return 1;
 		}
 
-		fprintf(stderr, "IN %04x: %.*s\n", priv->mAddress, len - 2, buf + 2);
+		fprintf(stderr, "IN %04x: %.*s\n", priv->mAddress, (int)(len - 2), buf + 2);
 		return 1;
 	}
 	else if(buf[0] == 0xA1)
 	{
-		uint16_t addr;
 		pthread_mutex_lock(&out_mutex);
 		switch(buf[2])
 		{
 		case 0:
-			printf("XDATAn%d ", priv - insts);
+			printf("XDATAn%d ", (int)(priv - insts));
 			break;
 		case 1:
-			printf("IDATAn%d ", priv - insts);
+			printf("IDATAn%d ", (int)(priv - insts));
 			break;
 		case 2:
-			printf("DATAn%d ", priv - insts);
+			printf("DATAn%d ", (int)(priv - insts));
 			break;
 		default:
-			printf("ERRORn%d ", priv - insts);
+			printf("ERRORn%d ", (int)(priv - insts));
 			break;
 		}
 		printf("[%x]", GETLE16(buf+3));
