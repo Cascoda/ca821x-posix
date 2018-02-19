@@ -38,6 +38,15 @@
 #define MAX_INSTANCES 5
 #define TX_PERIOD_US 50000
 #define CHANNEL 24
+#define SWAP_COUNTDOWN 100
+
+struct M_KeyDescriptor_st
+{
+	struct M_KeyTableEntryFixed    Fixed;
+	struct M_KeyIdLookupDesc       KeyIdLookupList[1];
+	struct M_KeyDeviceDesc         KeyDeviceList[1];
+	struct M_KeyUsageDesc          KeyUsageList[1];
+};
 
 static uint8_t msdu[M_MSDU_LENGTH] = {1, 2, 3, 4, 5, 6, 7, 0};
 
@@ -50,6 +59,8 @@ uint8_t addr2[] = {0xFA, 0xCE, 0x0F, 0xFF, 0xFA, 0xCE, 0x17, 0x00};
 uint16_t saddr1 = 0xBEEF;
 uint16_t saddr2 = 0xFACE;
 
+uint8_t new_mode = 0;
+
 struct inst_priv
 {
 	struct ca821x_dev pDeviceRef;
@@ -60,6 +71,8 @@ struct inst_priv
 	uint16_t mAddress;
 	uint8_t lastHandle;
 	uint16_t lastAddress;
+
+	uint8_t incKeyIndex;
 
 	struct SecSpec mSecSpec;
 	unsigned int mTx, mRx, mErr;
@@ -158,6 +171,33 @@ static int handleDataIndication(struct MCPS_DATA_indication_pset *params, struct
 	priv->mRx++;
 	pthread_mutex_unlock(&out_mutex);
 
+	if(new_mode)
+	{
+		struct SecSpec *curSecSpec = (struct SecSpec *)
+			((unsigned int)params + params->MsduLength + 29); //Location defined in cascoda API docs
+
+		struct M_KeyDescriptor_st kd;
+		struct M_DeviceDescriptor dd;
+		uint8_t len;
+
+		if(curSecSpec->KeyIndex > priv->incKeyIndex)
+		{
+			//Remove KDD from old KD
+			MLME_GET_request_sync(macKeyTable, priv->incKeyIndex, &len, &kd, pDeviceRef);
+			kd->Fixed.KeyDeviceListEntries = 0;
+			kd->KeyDeviceList[0].Flags = kd->KeyUsageList[0].Flags;
+			MLME_SET_request_sync(macKeyTable, priv->incKeyIndex, len-1, &kd, pDeviceRef);
+
+			//reset the frame counter of DD
+			MLME_GET_request_sync(macDeviceTable, 0, &len, &dd, pDeviceRef);
+			uint32_t fc = GETLE32(params->TimeStamp) + 1;
+			PUTLE32(fc, dd->FrameCounter);
+			MLME_SET_request_sync(macDeviceTable, 0, len, &dd, pDeviceRef);
+
+			priv->incKeyIndex = curSecSpec->KeyIndex;
+		}
+	}
+
 	return 0;
 }
 
@@ -178,7 +218,7 @@ static int handleDataConfirm(struct MCPS_DATA_confirm_pset *params, struct ca821
 		count = priv->mTx;
 		pthread_mutex_unlock(&out_mutex);
 
-		if(count == 200)
+		if(count == SWAP_COUNTDOWN)
 		{
 			uint8_t zeros[4] = {0};
 			priv->mSecSpec.KeyIndex = 1;
@@ -229,12 +269,7 @@ static int handleCommStatusIndication(struct MLME_COMM_STATUS_indication_pset *p
 		fprintf(stderr, "DD: fc %x, shaddr %x\n", GETLE32(dd.FrameCounter), GETLE16(dd.ShortAddress));
 	}
 
-	struct M_KeyDescriptor_st {
-		struct M_KeyTableEntryFixed    Fixed;
-		struct M_KeyIdLookupDesc       KeyIdLookupList[1];
-		struct M_KeyDeviceDesc         KeyDeviceList[1];
-		struct M_KeyUsageDesc          KeyUsageList[1];
-	} kd = {0};
+	struct M_KeyDescriptor_st kd = {0};
 
 	for(int i = 0; i < 2; i++)
 	{
@@ -454,7 +489,9 @@ void initInst(struct inst_priv *cur)
 	LEarray[0] = 2;
 	MLME_SET_request_sync(macDeviceTableEntries, 0, 1, LEarray, pDeviceRef);
 
-	for(int i = 0; i < 2; i++){
+	uint8_t dCount = new_mode ? 1 : 2;
+
+	for(int i = 0; i < dCount; i++){
 		MLME_SET_request_sync(macDeviceTable, i, sizeof(dd), &dd, pDeviceRef);
 	}
 
@@ -479,7 +516,9 @@ void initInst(struct inst_priv *cur)
 		else memcpy(kd.Fixed.Key, key2, 16);
 
 		kd.KeyIdLookupList[0].LookupData[0] = i;
-		kd.KeyDeviceList[0].Flags = i;
+		kd.KeyDeviceList[0].Flags = new_mode ? 0 : i;
+
+		if(new_mode && i == 1) kd.KeyDeviceList[0].Flags |= 0x20;
 
 		MLME_SET_request_sync(macKeyTable, i, sizeof(kd), &kd, pDeviceRef);
 	}
