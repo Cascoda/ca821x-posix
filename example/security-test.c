@@ -485,7 +485,7 @@ void initInst(struct inst_priv *cur)
 		kd.KeyIdLookupList[0].LookupData[0] = i;
 		kd.KeyDeviceList[0].Flags = new_mode ? 0 : i;
 
-		if(new_mode && i == 1) kd.KeyDeviceList[0].Flags |= 0x20;
+		if(new_mode && i == 1) kd.KeyDeviceList[0].Flags |= KDD_NewDeviceMask;
 
 		MLME_SET_request_sync(macKeyTable, i, sizeof(kd), &kd, pDeviceRef);
 	}
