@@ -62,7 +62,7 @@ struct inst_priv
 
 	uint32_t mExpectedData[HISTORY_LENGTH];
 	uint8_t  mExpectedStatus[HISTORY_LENGTH];
-	ssize_t  mExpectedIndex;
+	size_t  mExpectedIndex;
 
 	uint8_t msdu[M_MSDU_LENGTH];
 
@@ -98,7 +98,7 @@ static void addExpected(struct inst_priv *target, uint32_t payload)
 	}
 	target->mExpectedStatus[*index] = 0;
 	target->mExpectedData[*index] = payload;
-	(*index)++;
+	*index = (*index + 1) % HISTORY_LENGTH;
 
 }
 
@@ -108,11 +108,11 @@ static void processReceived(struct inst_priv *target, uint32_t payload)
 	{
 		if(target->mExpectedData[i] == payload)
 		{
-			if(target->mExpectedStatus == 1)
+			if(target->mExpectedStatus[i] == 1)
 			{
 				target->mRepeats++;
 			}
-			target->mExpectedStatus = 1;
+			target->mExpectedStatus[i] = 1;
 			return;
 		}
 	}
@@ -223,13 +223,13 @@ static int handleDataIndication(struct MCPS_DATA_indication_pset *params, struct
 	struct inst_priv *other, *priv = pDeviceRef->context;
 	pthread_mutex_lock(&out_mutex);
 	priv->mRx++;
+	processReceived(priv, GETLE32(params->Msdu));
 	pthread_mutex_unlock(&out_mutex);
 
 	if((other = getInstFromAddr(GETLE16(params->Src.Address))) != NULL)
 	{
 		pthread_mutex_lock(&out_mutex);
 		other->mSourced++;
-		processReceived(other, GETLE32(params->Msdu));
 		pthread_mutex_unlock(&out_mutex);
 	}
 
@@ -241,13 +241,13 @@ static int handleDataConfirm(struct MCPS_DATA_confirm_pset *params, struct ca821
 	struct inst_priv *other, *priv = pDeviceRef->context;
 	pthread_mutex_t *confirm_mutex = &(priv->confirm_mutex);
 	pthread_cond_t *confirm_cond = &(priv->confirm_cond);
+	uint16_t dstAddr;
 
 	TDME_SETSFR_request_sync(0, 0xdb, 0x0A, pDeviceRef);
 
 	switch(params->Status)
 	{
 	case MAC_SUCCESS:
-		uint16_t dstAddr;
 		pthread_mutex_lock(&out_mutex);
 		priv->mTx++;
 		pthread_mutex_unlock(&out_mutex);
@@ -388,7 +388,7 @@ void drawTableHeader()
 		       "\n\tsent %d frames that weren't acknowledged\n",
 		       i, insts[i].mRepeats, insts[i].mMissed, insts[i].mUnexpected,
 		       insts[i].mCAF, insts[i].mNack);
-		pthread_mutex_lock(&out_mutex);
+		pthread_mutex_unlock(&out_mutex);
 	}
 	printf("|----|");
 	for(int i = 0; i < numInsts; i++)
