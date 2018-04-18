@@ -244,9 +244,10 @@ static int handleDataConfirm(struct MCPS_DATA_confirm_pset *params, struct ca821
 
 	TDME_SETSFR_request_sync(0, 0xdb, 0x0A, pDeviceRef);
 
-	if(params->Status == MAC_SUCCESS)
+	switch(params->Status)
 	{
-	    uint16_t dstAddr;
+	case MAC_SUCCESS:
+		uint16_t dstAddr;
 		pthread_mutex_lock(&out_mutex);
 		priv->mTx++;
 		pthread_mutex_unlock(&out_mutex);
@@ -261,12 +262,27 @@ static int handleDataConfirm(struct MCPS_DATA_confirm_pset *params, struct ca821
 			other->mAckRemote++;
 			pthread_mutex_unlock(&out_mutex);
 		}
-	}
-	else
-	{
+		break;
+
+	case MAC_CHANNEL_ACCESS_FAILURE:
+		pthread_mutex_lock(&out_mutex);
+		priv->mCAF++;
+		priv->mErr++;
+		pthread_mutex_unlock(&out_mutex);
+		break;
+
+	case MAC_NO_ACK:
+		pthread_mutex_lock(&out_mutex);
+		priv->mNack++;
+		priv->mErr++;
+		pthread_mutex_unlock(&out_mutex);
+		break;
+
+	default:
 		pthread_mutex_lock(&out_mutex);
 		priv->mErr++;
 		pthread_mutex_unlock(&out_mutex);
+		break;
 	}
 
 	pthread_mutex_lock(confirm_mutex);
@@ -310,6 +326,10 @@ static void *inst_worker(void *arg)
 		union MacAddr dest;
 		uint32_t payload = rand();
 
+		pthread_mutex_lock(&out_mutex);
+		addExpected(&(insts[i]), payload);
+		pthread_mutex_unlock(&out_mutex);
+
 		do{
 			i = (i+1) % numInsts;
 		} while(&insts[i] == priv);
@@ -332,7 +352,6 @@ static void *inst_worker(void *arg)
 		priv->lastAddress = insts[i].mAddress;
 		pthread_mutex_unlock(confirm_mutex);
 		TDME_SETSFR_request_sync(0, 0xdb, 0x0E, pDeviceRef);
-		addExpected(&(insts[i]), payload);
 		PUTLE32(payload, priv->msdu);
 		MCPS_DATA_request(
 				MAC_MODE_SHORT_ADDR,
@@ -352,6 +371,25 @@ static void *inst_worker(void *arg)
 
 void drawTableHeader()
 {
+	printf("|----|");
+	for(int i = 0; i < numInsts; i++)
+	{
+		printf("|----|----|----|----|---|---|---|---|");
+	}
+	printf("\n");
+	printf("Digest of statistics:\n");
+	for(int i = 0; i < numInsts; i++)
+	{
+		pthread_mutex_lock(&out_mutex);
+		printf("Node %d:\n\treceived %d repeated frames"\
+		       "\n\tmissed %d packets"\
+		       "\n\treceived %d unknown payloads"\
+		       "\n\tencountered %d Channel Access Failures"\
+		       "\n\tsent %d frames that weren't acknowledged\n",
+		       i, insts[i].mRepeats, insts[i].mMissed, insts[i].mUnexpected,
+		       insts[i].mCAF, insts[i].mNack);
+		pthread_mutex_lock(&out_mutex);
+	}
 	printf("|----|");
 	for(int i = 0; i < numInsts; i++)
 	{
