@@ -7,6 +7,7 @@
 #include <assert.h>
 #include <signal.h>
 #include <string.h>
+#include <time.h>
 
 #include "../ca821x-posix.h"
 
@@ -38,8 +39,15 @@
 #define MAX_INSTANCES 5
 #define TX_PERIOD_US 50000
 
-static uint8_t msdu[M_MSDU_LENGTH] = {1, 2, 3, 4, 5, 6, 7, 0};
+#define HISTORY_LENGTH 10
+
 static struct SecSpec sSecSpec = {0};
+
+enum kStatus
+{
+	STATUS_EXPECTED = 0,
+	STATUS_RECEIVED,
+};
 
 struct inst_priv
 {
@@ -52,7 +60,14 @@ struct inst_priv
 	uint8_t lastHandle;
 	uint16_t lastAddress;
 
-	unsigned int mTx, mSourced, mRx, mAckRemote, mErr, mRestarts, mBadRx, mBadTx;
+	uint32_t mExpectedData[HISTORY_LENGTH];
+	uint8_t  mExpectedStatus[HISTORY_LENGTH];
+	ssize_t  mExpectedIndex;
+
+	uint8_t msdu[M_MSDU_LENGTH];
+
+	unsigned int mTx, mSourced, mRx, mAckRemote, mErr, mRestarts, mBadRx, mBadTx,
+	             mCAF, mNack, mRepeats, mMissed, mUnexpected;
 };
 
 int numInsts;
@@ -61,6 +76,48 @@ struct inst_priv insts[MAX_INSTANCES] = {};
 pthread_mutex_t out_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 void initInst(struct inst_priv *cur);
+
+static struct inst_priv *getInstFromAddr(uint16_t shaddr)
+{
+	for(int i = 0; i < numInsts; i++)
+	{
+		if (insts[i].mAddress == shaddr)
+		{
+			return &(insts[i]);
+		}
+	}
+	return NULL;
+}
+
+static void addExpected(struct inst_priv *target, uint32_t payload)
+{
+	size_t *index = &target->mExpectedIndex;
+	if(target->mExpectedStatus[*index] == 0)
+	{
+		target->mMissed++;
+	}
+	target->mExpectedStatus[*index] = 0;
+	target->mExpectedData[*index] = payload;
+	(*index)++;
+
+}
+
+static void processReceived(struct inst_priv *target, uint32_t payload)
+{
+	for(size_t i = 0; i < HISTORY_LENGTH; i++)
+	{
+		if(target->mExpectedData[i] == payload)
+		{
+			if(target->mExpectedStatus == 1)
+			{
+				target->mRepeats++;
+			}
+			target->mExpectedStatus = 1;
+			return;
+		}
+	}
+	target->mUnexpected++;
+}
 
 static void quit(int sig)
 {
@@ -99,7 +156,7 @@ static int driverErrorCallback(int error_number, struct ca821x_dev *pDeviceRef)
 int handleUserCallback(const uint8_t *buf, size_t len,
 											 struct ca821x_dev *pDeviceRef)
 {
-	struct inst_priv *priv = pDeviceRef->context;
+	struct inst_priv *other, *priv = pDeviceRef->context;
 
 	if (buf[0] == 0xA0)
 	{
@@ -110,16 +167,13 @@ int handleUserCallback(const uint8_t *buf, size_t len,
 			priv->mBadRx++;
 			pthread_mutex_unlock(&out_mutex);
 
-			for(int i = 0; i < numInsts; i++)
+			if((other = getInstFromAddr(from)) != NULL)
 			{
-				if(insts[i].mAddress == from)
-				{
-					pthread_mutex_lock(&out_mutex);
-					insts[i].mBadTx++;
-					pthread_mutex_unlock(&out_mutex);
-					break;
-				}
+				pthread_mutex_lock(&out_mutex);
+				other->mBadTx++;
+				pthread_mutex_unlock(&out_mutex);
 			}
+
 			return 1;
 		}
 
@@ -166,28 +220,25 @@ int handleUserCallback(const uint8_t *buf, size_t len,
 
 static int handleDataIndication(struct MCPS_DATA_indication_pset *params, struct ca821x_dev *pDeviceRef)   //Async
 {
-	struct inst_priv *priv = pDeviceRef->context;
+	struct inst_priv *other, *priv = pDeviceRef->context;
 	pthread_mutex_lock(&out_mutex);
 	priv->mRx++;
 	pthread_mutex_unlock(&out_mutex);
 
-		for(int i = 0; i < numInsts; i++)
-		{
-				if(insts[i].mAddress == GETLE16(params->Src.Address))
-				{
-						pthread_mutex_lock(&out_mutex);
-						insts[i].mSourced++;
-						pthread_mutex_unlock(&out_mutex);
-						break;
-				}
-		}
+	if((other = getInstFromAddr(GETLE16(params->Src.Address))) != NULL)
+	{
+		pthread_mutex_lock(&out_mutex);
+		other->mSourced++;
+		processReceived(other, GETLE32(params->Msdu));
+		pthread_mutex_unlock(&out_mutex);
+	}
 
 	return 0;
 }
 
 static int handleDataConfirm(struct MCPS_DATA_confirm_pset *params, struct ca821x_dev *pDeviceRef)   //Async
 {
-	struct inst_priv *priv = pDeviceRef->context;
+	struct inst_priv *other, *priv = pDeviceRef->context;
 	pthread_mutex_t *confirm_mutex = &(priv->confirm_mutex);
 	pthread_cond_t *confirm_cond = &(priv->confirm_cond);
 
@@ -204,15 +255,11 @@ static int handleDataConfirm(struct MCPS_DATA_confirm_pset *params, struct ca821
 		dstAddr = priv->lastAddress;
 		pthread_mutex_unlock(confirm_mutex);
 
-		for(int i = 0; i < numInsts; i++)
+		if((other = getInstFromAddr(dstAddr)) != NULL)
 		{
-			if (insts[i].mAddress == dstAddr)
-			{
-				pthread_mutex_lock(&out_mutex);
-				insts[i].mAckRemote++;
-				pthread_mutex_unlock(&out_mutex);
-				break;
-			}
+			pthread_mutex_lock(&out_mutex);
+			other->mAckRemote++;
+			pthread_mutex_unlock(&out_mutex);
 		}
 	}
 	else
@@ -261,6 +308,7 @@ static void *inst_worker(void *arg)
 	while(1)
 	{
 		union MacAddr dest;
+		uint32_t payload = rand();
 
 		do{
 			i = (i+1) % numInsts;
@@ -284,13 +332,15 @@ static void *inst_worker(void *arg)
 		priv->lastAddress = insts[i].mAddress;
 		pthread_mutex_unlock(confirm_mutex);
 		TDME_SETSFR_request_sync(0, 0xdb, 0x0E, pDeviceRef);
+		addExpected(&(insts[i]), payload);
+		PUTLE32(payload, priv->msdu);
 		MCPS_DATA_request(
 				MAC_MODE_SHORT_ADDR,
 				MAC_MODE_SHORT_ADDR,
 				M_PANID,
 				&dest,
 				M_MSDU_LENGTH,
-				msdu,
+				priv->msdu,
 				priv->lastHandle,
 				0x01,
 				&sSecSpec,
@@ -431,11 +481,14 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
+	srand(time(NULL));
+
 	for(int i = 0; i < numInsts; i++){
 		struct inst_priv *cur = &insts[i];
 		struct ca821x_dev *pDeviceRef = &(cur->pDeviceRef);
 		cur->mAddress = atoi(argv[i+1]);
 		cur->confirm_done = 1;
+		memset(cur->mExpectedStatus, 1, sizeof(cur->mExpectedStatus));
 
 		pthread_mutex_init(&(cur->confirm_mutex), NULL);
 		pthread_cond_init(&(cur->confirm_cond), NULL);
