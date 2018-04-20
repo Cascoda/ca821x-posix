@@ -12,6 +12,11 @@
 
 #include "../ca821x-posix.h"
 
+//Set to 1 to build for the chilis (i.e. with MACFFT set on this level)
+#ifndef PLAT_CHILI
+#define PLAT_CHILI 0
+#endif
+
 /* Colour codes for printf */
 #ifndef NO_COLOR
 #define RED        "\x1b[31m"
@@ -262,8 +267,9 @@ static int handleDataConfirm(struct MCPS_DATA_confirm_pset *params, struct ca821
 	pthread_cond_t *confirm_cond = &(priv->confirm_cond);
 	uint16_t dstAddr;
 
+#if PLAT_CHILI
 	TDME_SETSFR_request_sync(0, 0xdb, 0x0A, pDeviceRef);
-
+#endif
 	switch(params->Status)
 	{
 	case MAC_SUCCESS:
@@ -375,7 +381,9 @@ static void *inst_worker(void *arg)
 		pthread_mutex_lock(confirm_mutex);
 		priv->lastAddress = insts[i].mAddress;
 		pthread_mutex_unlock(confirm_mutex);
+#if PLAT_CHILI
 		TDME_SETSFR_request_sync(0, 0xdb, 0x0E, pDeviceRef);
+#endif
 		PUTLE32(payload, priv->msdu);
 		MCPS_DATA_request(
 				MAC_MODE_SHORT_ADDR,
