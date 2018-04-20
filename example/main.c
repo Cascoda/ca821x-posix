@@ -322,22 +322,19 @@ static void *inst_worker(void *arg)
 {
 	struct inst_priv *priv = arg;
 	struct ca821x_dev *pDeviceRef = &(priv->pDeviceRef);
-	struct drand48_data randbuf;
-	long int randnum;
+	uint32_t payload;
 
 	pthread_mutex_t *confirm_mutex = &(priv->confirm_mutex);
 	pthread_cond_t *confirm_cond = &(priv->confirm_cond);
 
-	srand48_r((long int) &randbuf, &randbuf);
+	payload = (uint32_t) &payload;
 
 	uint16_t i = 0;
 	while(1)
 	{
 		union MacAddr dest;
-		uint32_t payload;
 
-		lrand48_r(&randbuf, &randnum);
-		payload = randnum;
+		payload++;
 
 		do{
 			i = (i+1) % numInsts;
@@ -531,8 +528,6 @@ int main(int argc, char *argv[])
 		printf("Please increase MAX_INSTANCES in main.c");
 		return -1;
 	}
-
-	srand(time(NULL));
 
 	for(int i = 0; i < numInsts; i++){
 		struct inst_priv *cur = &insts[i];
