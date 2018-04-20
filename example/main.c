@@ -44,11 +44,9 @@
 
 static struct SecSpec sSecSpec = {0};
 
-enum kStatus
-{
-	STATUS_EXPECTED = 0,
-	STATUS_RECEIVED,
-};
+#define STATUS_RECEIVED         (1<<0)
+#define STATUS_ACKNOWLEDGED     (1<<1)
+#define STATUS_REPEATED         (1<<2)
 
 struct inst_priv
 {
@@ -64,11 +62,12 @@ struct inst_priv
 	uint32_t mExpectedData[HISTORY_LENGTH];
 	uint8_t  mExpectedStatus[HISTORY_LENGTH];
 	size_t  mExpectedIndex;
+	size_t prevExpectedId;
 
 	uint8_t msdu[M_MSDU_LENGTH];
 
 	unsigned int mTx, mSourced, mRx, mAckRemote, mErr, mRestarts, mBadRx, mBadTx,
-	             mCAF, mNack, mRepeats, mMissed, mUnexpected;
+	             mCAF, mNack, mRepeats, mMissed, mUnexpected, mMissedAcked, mAckLost;
 };
 
 int numInsts;
@@ -90,17 +89,31 @@ static struct inst_priv *getInstFromAddr(uint16_t shaddr)
 	return NULL;
 }
 
-static void addExpected(struct inst_priv *target, uint32_t payload)
+static size_t addExpected(struct inst_priv *target, uint32_t payload)
 {
 	size_t *index = &target->mExpectedIndex;
-	if(target->mExpectedStatus[*index] == 0)
+	*index = (*index + 1) % HISTORY_LENGTH;
+
+	if(!(target->mExpectedStatus[*index] & STATUS_RECEIVED))
 	{
 		target->mMissed++;
+		if(target->mExpectedStatus[*index] & STATUS_ACKNOWLEDGED)
+			target->mMissedAcked++;
+	}
+	else if(!(target->mExpectedStatus[*index] & STATUS_ACKNOWLEDGED))
+	{
+		target->mAckLost++;
 	}
 	target->mExpectedStatus[*index] = 0;
 	target->mExpectedData[*index] = payload;
-	*index = (*index + 1) % HISTORY_LENGTH;
 
+	return *index;
+}
+
+static void processAcked(struct inst_priv *target, size_t id)
+{
+	assert(!(target->mExpectedStatus[id] & STATUS_ACKNOWLEDGED)); //This would be bad, double confirm or something
+	target->mExpectedStatus[id] |= STATUS_ACKNOWLEDGED;
 }
 
 static void processReceived(struct inst_priv *target, uint32_t payload)
@@ -109,11 +122,11 @@ static void processReceived(struct inst_priv *target, uint32_t payload)
 	{
 		if(target->mExpectedData[i] == payload)
 		{
-			if(target->mExpectedStatus[i] == 1)
+			if(target->mExpectedStatus[i] & STATUS_RECEIVED)
 			{
 				target->mRepeats++;
 			}
-			target->mExpectedStatus[i] = 1;
+			target->mExpectedStatus[i] |= STATUS_RECEIVED;
 			return;
 		}
 	}
@@ -265,6 +278,7 @@ static int handleDataConfirm(struct MCPS_DATA_confirm_pset *params, struct ca821
 		if((other = getInstFromAddr(dstAddr)) != NULL)
 		{
 			pthread_mutex_lock(&out_mutex);
+			processAcked(other, priv->prevExpectedId);
 			other->mAckRemote++;
 			pthread_mutex_unlock(&out_mutex);
 		}
@@ -353,7 +367,7 @@ static void *inst_worker(void *arg)
 		pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
 
 		pthread_mutex_lock(&out_mutex);
-		addExpected(&(insts[i]), payload);
+		priv->prevExpectedId = addExpected(&(insts[i]), payload);
 		pthread_mutex_unlock(&out_mutex);
 
 		//fire
@@ -392,12 +406,12 @@ void drawTableHeader()
 	{
 		pthread_mutex_lock(&out_mutex);
 		printf("Node %d:\n\treceived %d repeated frames"\
-		       "\n\tmissed %d packets"\
+		       "\n\tmissed %d packets (of which %d were acked!)"\
 		       "\n\treceived %d unknown payloads"\
 		       "\n\tencountered %d Channel Access Failures"\
-		       "\n\tsent %d frames that weren't acknowledged\n",
-		       i, insts[i].mRepeats, insts[i].mMissed, insts[i].mUnexpected,
-		       insts[i].mCAF, insts[i].mNack);
+		       "\n\tsent %d packets that weren't acknowledged (but %d made it through anyway)\n",
+		       i, insts[i].mRepeats, insts[i].mMissed, insts[i].mMissedAcked,
+		       insts[i].mUnexpected, insts[i].mCAF, insts[i].mNack, insts[i].mAckLost);
 		pthread_mutex_unlock(&out_mutex);
 	}
 	printf("|----|");
@@ -534,7 +548,7 @@ int main(int argc, char *argv[])
 		struct ca821x_dev *pDeviceRef = &(cur->pDeviceRef);
 		cur->mAddress = atoi(argv[i+1]);
 		cur->confirm_done = 1;
-		memset(cur->mExpectedStatus, 1, sizeof(cur->mExpectedStatus));
+		memset(cur->mExpectedStatus, STATUS_RECEIVED | STATUS_ACKNOWLEDGED, sizeof(cur->mExpectedStatus));
 
 		pthread_mutex_init(&(cur->confirm_mutex), NULL);
 		pthread_cond_init(&(cur->confirm_cond), NULL);
