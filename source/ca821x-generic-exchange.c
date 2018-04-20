@@ -309,6 +309,7 @@ void *ca8210_io_worker(void *arg)
 		pthread_mutex_unlock(&priv->flag_mutex);
 
 		len = priv->read_func(pDeviceRef, buffer);
+		assert(len < MAX_BUF_SIZE);
 		if (len > 0)
 		{
 			if (buffer[0] & SPI_SYN)

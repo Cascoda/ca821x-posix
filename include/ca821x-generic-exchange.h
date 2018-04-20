@@ -34,7 +34,7 @@
 
 #include "ca821x-types.h"
 
-#define MAX_BUF_SIZE 189
+#define MAX_BUF_SIZE 256
 
 
 int init_generic(struct ca821x_dev *pDeviceRef);
