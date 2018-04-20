@@ -74,6 +74,7 @@ int numInsts;
 struct inst_priv insts[MAX_INSTANCES] = {};
 
 pthread_mutex_t out_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t clib_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 void initInst(struct inst_priv *cur);
 
@@ -223,7 +224,12 @@ static int handleDataIndication(struct MCPS_DATA_indication_pset *params, struct
 	struct inst_priv *other, *priv = pDeviceRef->context;
 	pthread_mutex_lock(&out_mutex);
 	priv->mRx++;
-	processReceived(priv, GETLE32(params->Msdu));
+
+	if (params->MsduLength == M_MSDU_LENGTH)
+		processReceived(priv, GETLE32(params->Msdu));
+	else
+		priv->mUnexpected++;
+
 	pthread_mutex_unlock(&out_mutex);
 
 	if((other = getInstFromAddr(GETLE16(params->Src.Address))) != NULL)
@@ -324,11 +330,11 @@ static void *inst_worker(void *arg)
 	while(1)
 	{
 		union MacAddr dest;
-		uint32_t payload = rand();
+		uint32_t payload;
 
-		pthread_mutex_lock(&out_mutex);
-		addExpected(&(insts[i]), payload);
-		pthread_mutex_unlock(&out_mutex);
+		pthread_mutex_lock(&clib_mutex);
+		payload = rand();
+		pthread_mutex_unlock(&clib_mutex);
 
 		do{
 			i = (i+1) % numInsts;
@@ -345,6 +351,10 @@ static void *inst_worker(void *arg)
 		usleep(TX_PERIOD_US);
 
 		pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
+
+		pthread_mutex_lock(&out_mutex);
+		addExpected(&(insts[i]), payload);
+		pthread_mutex_unlock(&out_mutex);
 
 		//fire
 		dest.ShortAddress = insts[i].mAddress;
