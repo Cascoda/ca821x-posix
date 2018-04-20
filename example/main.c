@@ -1,4 +1,5 @@
 
+#define _DEFAULT_SOURCE 1
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -74,7 +75,6 @@ int numInsts;
 struct inst_priv insts[MAX_INSTANCES] = {};
 
 pthread_mutex_t out_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t clib_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 void initInst(struct inst_priv *cur);
 
@@ -322,9 +322,13 @@ static void *inst_worker(void *arg)
 {
 	struct inst_priv *priv = arg;
 	struct ca821x_dev *pDeviceRef = &(priv->pDeviceRef);
+	struct drand48_data randbuf;
+	long int randnum;
 
 	pthread_mutex_t *confirm_mutex = &(priv->confirm_mutex);
 	pthread_cond_t *confirm_cond = &(priv->confirm_cond);
+
+	srand48_r((long int) &randbuf, &randbuf);
 
 	uint16_t i = 0;
 	while(1)
@@ -332,9 +336,8 @@ static void *inst_worker(void *arg)
 		union MacAddr dest;
 		uint32_t payload;
 
-		pthread_mutex_lock(&clib_mutex);
-		payload = rand();
-		pthread_mutex_unlock(&clib_mutex);
+		lrand48_r(&randbuf, &randnum);
+		payload = randnum;
 
 		do{
 			i = (i+1) % numInsts;
