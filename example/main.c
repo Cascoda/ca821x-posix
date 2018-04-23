@@ -66,6 +66,7 @@ struct inst_priv
 
 	uint32_t mExpectedData[HISTORY_LENGTH];
 	uint8_t  mExpectedStatus[HISTORY_LENGTH];
+	struct inst_priv* mExpectedSource[HISTORY_LENGTH];
 	size_t  mExpectedIndex;
 	size_t prevExpectedId;
 
@@ -94,7 +95,7 @@ static struct inst_priv *getInstFromAddr(uint16_t shaddr)
 	return NULL;
 }
 
-static size_t addExpected(struct inst_priv *target, uint32_t payload)
+static size_t addExpected(struct inst_priv *target, struct inst_priv *source, uint32_t payload)
 {
 	size_t *index = &target->mExpectedIndex;
 	*index = (*index + 1) % HISTORY_LENGTH;
@@ -107,10 +108,12 @@ static size_t addExpected(struct inst_priv *target, uint32_t payload)
 	}
 	else if(!(target->mExpectedStatus[*index] & STATUS_ACKNOWLEDGED))
 	{
-		target->mAckLost++;
+		if(target->mExpectedSource[*index] != NULL)
+			target->mExpectedSource[*index]->mAckLost++;
 	}
 	target->mExpectedStatus[*index] = 0;
 	target->mExpectedData[*index] = payload;
+	target->mExpectedSource[*index] = source;
 
 	return *index;
 }
@@ -373,7 +376,7 @@ static void *inst_worker(void *arg)
 		pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
 
 		pthread_mutex_lock(&out_mutex);
-		priv->prevExpectedId = addExpected(&(insts[i]), payload);
+		priv->prevExpectedId = addExpected(&(insts[i]), priv, payload);
 		pthread_mutex_unlock(&out_mutex);
 
 		//fire
