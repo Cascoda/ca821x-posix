@@ -208,8 +208,13 @@ ssize_t usb_try_read(struct ca821x_dev *pDeviceRef,
 
 	if(buf[0] == 0xF0)
 	{
-		fprintf(stderr, "\r\nERROR CODE 0x%02x\r\n", buf[2]);
-		fflush(stderr);
+		static int ecount = 0;
+		if(ecount < 20)
+		{
+			fprintf(stderr, "\r\nERROR CODE 0x%02x\r\n", buf[2]);
+			fflush(stderr);
+			ecount++;
+		}
 		//Error packet indicating coprocessor has reset ca821x - let app know
 		if(buf[3]) error = -usb_exchange_err_ca821x;
 	}

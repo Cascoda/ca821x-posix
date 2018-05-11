@@ -43,15 +43,19 @@
 #define M_PANID 0x1AAA
 #define M_MSDU_LENGTH 100
 #define MAX_INSTANCES 5
-#define TX_PERIOD_US 50000
+#define TX_PERIOD_US 3000
+#define TO_BACKOFF_US 15000
+#define WAIT_CONFIRM 0
 
-#define HISTORY_LENGTH 10
+#define HISTORY_LENGTH 300
+#define MSDU_HISTORY 100
 
 static struct SecSpec sSecSpec = {0};
 
 #define STATUS_RECEIVED         (1<<0)
 #define STATUS_ACKNOWLEDGED     (1<<1)
 #define STATUS_REPEATED         (1<<2)
+#define STATUS_CONFIRMED        (1<<3)
 
 struct inst_priv
 {
@@ -68,12 +72,16 @@ struct inst_priv
 	uint8_t  mExpectedStatus[HISTORY_LENGTH];
 	struct inst_priv* mExpectedSource[HISTORY_LENGTH];
 	size_t  mExpectedIndex;
-	size_t prevExpectedId;
+
+	size_t idIndex;
+	uint8_t mMsduHandles[MSDU_HISTORY];
+	size_t prevExpectedId[MSDU_HISTORY];
 
 	uint8_t msdu[M_MSDU_LENGTH];
 
 	unsigned int mTx, mSourced, mRx, mAckRemote, mErr, mRestarts, mBadRx, mBadTx,
-	             mCAF, mNack, mRepeats, mMissed, mUnexpected, mMissedAcked, mAckLost;
+	             mCAF, mNack, mRepeats, mMissed, mUnexpected, mMissedAcked, mAckLost,
+		     mTO, mBackoff, mConfirmLost, mConfirmDup;
 };
 
 int numInsts;
@@ -111,6 +119,11 @@ static size_t addExpected(struct inst_priv *target, struct inst_priv *source, ui
 		if(target->mExpectedSource[*index] != NULL)
 			target->mExpectedSource[*index]->mAckLost++;
 	}
+	else if(!(target->mExpectedStatus[*index] & STATUS_CONFIRMED))
+	{
+		if(target->mExpectedSource[*index] != NULL)
+			target->mExpectedSource[*index]->mConfirmLost++;
+	}
 	target->mExpectedStatus[*index] = 0;
 	target->mExpectedData[*index] = payload;
 	target->mExpectedSource[*index] = source;
@@ -120,8 +133,14 @@ static size_t addExpected(struct inst_priv *target, struct inst_priv *source, ui
 
 static void processAcked(struct inst_priv *target, size_t id)
 {
-	assert(!(target->mExpectedStatus[id] & STATUS_ACKNOWLEDGED)); //This would be bad, double confirm or something
 	target->mExpectedStatus[id] |= STATUS_ACKNOWLEDGED;
+}
+
+static void processConfirmed(struct inst_priv *target, size_t id)
+{
+	if((target->mExpectedStatus[id] & STATUS_CONFIRMED)) //This would be bad, double confirm or something
+		target->mConfirmDup++;
+	target->mExpectedStatus[id] |= STATUS_CONFIRMED;
 }
 
 static void processReceived(struct inst_priv *target, uint32_t payload)
@@ -273,29 +292,45 @@ static int handleDataConfirm(struct MCPS_DATA_confirm_pset *params, struct ca821
 #if PLAT_CHILI
 	TDME_SETSFR_request_sync(0, 0xdb, 0x0A, pDeviceRef);
 #endif
+
+	pthread_mutex_lock(confirm_mutex);
+	dstAddr = priv->lastAddress;
+	pthread_mutex_unlock(confirm_mutex);
+
+	if((other = getInstFromAddr(dstAddr)) != NULL)
+	{
+		pthread_mutex_lock(&out_mutex);
+		for(int i = 0; i < MSDU_HISTORY; i++){
+			if(priv->mMsduHandles[i] == params->MsduHandle)
+			{
+				processConfirmed(other, priv->prevExpectedId[i]);
+				if(params->Status == MAC_SUCCESS)
+					processAcked(other, priv->prevExpectedId[i]);
+			}
+		}
+		other->mAckRemote++;
+		pthread_mutex_unlock(&out_mutex);
+	}
+
 	switch(params->Status)
 	{
 	case MAC_SUCCESS:
 		pthread_mutex_lock(&out_mutex);
 		priv->mTx++;
 		pthread_mutex_unlock(&out_mutex);
-
-		pthread_mutex_lock(confirm_mutex);
-		dstAddr = priv->lastAddress;
-		pthread_mutex_unlock(confirm_mutex);
-
-		if((other = getInstFromAddr(dstAddr)) != NULL)
-		{
-			pthread_mutex_lock(&out_mutex);
-			processAcked(other, priv->prevExpectedId);
-			other->mAckRemote++;
-			pthread_mutex_unlock(&out_mutex);
-		}
 		break;
 
 	case MAC_CHANNEL_ACCESS_FAILURE:
 		pthread_mutex_lock(&out_mutex);
 		priv->mCAF++;
+		priv->mErr++;
+		pthread_mutex_unlock(&out_mutex);
+		break;
+
+	case MAC_TRANSACTION_OVERFLOW:
+		pthread_mutex_lock(&out_mutex);
+		priv->mTO++;
+		priv->mBackoff = 1;
 		priv->mErr++;
 		pthread_mutex_unlock(&out_mutex);
 		break;
@@ -323,7 +358,7 @@ static int handleDataConfirm(struct MCPS_DATA_confirm_pset *params, struct ca821
 	else
 	{
 		pthread_mutex_lock(&out_mutex);
-		printf(COLOR_SET(RED, "Dev %x: Expected handle %x, got %x") "\r\n", priv->mAddress, priv->lastHandle, params->MsduHandle);
+		//printf(COLOR_SET(RED, "Dev %x: Expected handle %x, got %x") "\r\n", priv->mAddress, priv->lastHandle, params->MsduHandle);
 		pthread_mutex_unlock(&out_mutex);
 	}
 	pthread_mutex_unlock(confirm_mutex);
@@ -337,6 +372,7 @@ static int handleGenericDispatchFrame(const uint8_t *buf, size_t len, struct ca8
 	/*
 	 * This is a debugging function for unhandled incoming MAC data
 	 */
+	fprintf(stderr, "Unexpected command 0x%02x\r\n", buf[0]);
 
 	return 0;
 }
@@ -365,7 +401,9 @@ static void *inst_worker(void *arg)
 		//wait for confirm & reset
 		pthread_mutex_lock(confirm_mutex);
 		while(!priv->confirm_done) pthread_cond_wait(confirm_cond, confirm_mutex);
+#if WAIT_CONFIRM
 		priv->confirm_done = 0;
+#endif
 		priv->lastHandle++;
 		pthread_mutex_unlock(confirm_mutex);
 
@@ -375,9 +413,20 @@ static void *inst_worker(void *arg)
 
 		pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
 
+//		if(i) continue;
 		pthread_mutex_lock(&out_mutex);
-		priv->prevExpectedId = addExpected(&(insts[i]), priv, payload);
-		pthread_mutex_unlock(&out_mutex);
+		priv->mMsduHandles[priv->idIndex] = priv->lastHandle;
+		priv->prevExpectedId[priv->idIndex] = addExpected(&(insts[i]), priv, payload);
+		priv->idIndex = (priv->idIndex + 1) % MSDU_HISTORY;
+		if(priv->mBackoff){
+			priv->mBackoff = 0;
+			pthread_mutex_unlock(&out_mutex);
+			usleep(TO_BACKOFF_US);
+		}
+		else
+		{
+			pthread_mutex_unlock(&out_mutex);
+		}
 
 		//fire
 		dest.ShortAddress = insts[i].mAddress;
@@ -387,7 +436,7 @@ static void *inst_worker(void *arg)
 #if PLAT_CHILI
 		TDME_SETSFR_request_sync(0, 0xdb, 0x0E, pDeviceRef);
 #endif
-		PUTLE32(payload, priv->msdu);
+		PUTLE32(payload, priv->msdu);	
 		MCPS_DATA_request(
 				MAC_MODE_SHORT_ADDR,
 				MAC_MODE_SHORT_ADDR,
@@ -420,9 +469,12 @@ void drawTableHeader()
 		       "\n\tmissed %d packets (of which %d were acked!)"\
 		       "\n\treceived %d unknown payloads"\
 		       "\n\tencountered %d Channel Access Failures"\
-		       "\n\tsent %d packets that weren't acknowledged (but %d made it through anyway)\n",
+		       "\n\tsent %d packets that weren't acknowledged (but %d made it through anyway)"\
+		       "\n\tTriggered %d Transaction Overflows"\
+		       "\n\tLost %d Confirms, got %d duplicates\n",
 		       i, insts[i].mRepeats, insts[i].mMissed, insts[i].mMissedAcked,
-		       insts[i].mUnexpected, insts[i].mCAF, insts[i].mNack, insts[i].mAckLost);
+		       insts[i].mUnexpected, insts[i].mCAF, insts[i].mNack, insts[i].mAckLost,
+		       insts[i].mTO, insts[i].mConfirmLost, insts[i].mConfirmDup);
 		pthread_mutex_unlock(&out_mutex);
 	}
 	printf("|----|");
@@ -553,13 +605,13 @@ int main(int argc, char *argv[])
 		printf("Please increase MAX_INSTANCES in main.c");
 		return -1;
 	}
-
 	for(int i = 0; i < numInsts; i++){
 		struct inst_priv *cur = &insts[i];
 		struct ca821x_dev *pDeviceRef = &(cur->pDeviceRef);
 		cur->mAddress = atoi(argv[i+1]);
 		cur->confirm_done = 1;
-		memset(cur->mExpectedStatus, STATUS_RECEIVED | STATUS_ACKNOWLEDGED, sizeof(cur->mExpectedStatus));
+		cur->lastHandle = -1;
+		memset(cur->mExpectedStatus, STATUS_RECEIVED | STATUS_ACKNOWLEDGED | STATUS_CONFIRMED, sizeof(cur->mExpectedStatus));
 
 		pthread_mutex_init(&(cur->confirm_mutex), NULL);
 		pthread_cond_init(&(cur->confirm_cond), NULL);
