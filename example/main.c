@@ -312,7 +312,7 @@ static void fillIndirectJunk(struct inst_priv *priv)
 					priv->lastHandle,
 					0x05,
 					&sSecSpec,
-					priv->pDeviceRef
+					&(priv->pDeviceRef)
 					);
 			priv->mJunkInQueue[i] = 1;
 		}
@@ -478,9 +478,12 @@ static void *inst_worker(void *arg)
 #elif INDIRECT
 		if(i)
 		{
+			struct FullAddr fa = {0};
+			PUTLE16(M_PANID, fa.PANId);
+			PUTLE16(0xDEAD, fa.Address);
+			fa.AddressMode = MAC_MODE_SHORT_ADDR;
 			uint8_t interval[2] = {0, 0};
-			dest.ShortAddress = insts[i].mAddress;
-			MLME_POLL_request_sync(dest, &interval, &sSecSpec, pDeviceRef);
+			MLME_POLL_request_sync(fa, interval, &sSecSpec, pDeviceRef);
 			continue;
 		}
 #endif
