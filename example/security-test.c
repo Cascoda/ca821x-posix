@@ -36,7 +36,7 @@
 #define M_PANID 0x5ECC
 #define M_MSDU_LENGTH 100
 #define MAX_INSTANCES 5
-#define TX_PERIOD_US 50000
+#define TX_PERIOD_US 0000
 #define CHANNEL 24
 #define SWAP_COUNTDOWN 100
 
@@ -179,7 +179,7 @@ static int handleDataConfirm(struct MCPS_DATA_confirm_pset *params, struct ca821
 	pthread_mutex_t *confirm_mutex = &(priv->confirm_mutex);
 	pthread_cond_t *confirm_cond = &(priv->confirm_cond);
 
-	TDME_SETSFR_request_sync(0, 0xdb, 0x0A, pDeviceRef);
+	//TDME_SETSFR_request_sync(0, 0xdb, 0x0A, pDeviceRef);
 
 	if(params->Status == MAC_SUCCESS)
 	{
@@ -296,7 +296,8 @@ static void *inst_worker(void *arg)
 		pthread_mutex_lock(confirm_mutex);
 		priv->lastAddress = insts[i].mAddress;
 		pthread_mutex_unlock(confirm_mutex);
-		TDME_SETSFR_request_sync(0, 0xdb, 0x0E, pDeviceRef);
+		//TDME_SETSFR_request_sync(0, 0xdb, 0x0E, pDeviceRef);
+		//if(i == 1)
 		MCPS_DATA_request(
 				MAC_MODE_SHORT_ADDR,
 				MAC_MODE_SHORT_ADDR,

@@ -41,13 +41,15 @@
 #define COLOR_SET(C,X) C X RESET
 
 #define M_PANID 0x1AAA
-#define M_MSDU_LENGTH 100
+#define M_MSDU_LENGTH 4
 #define MAX_INSTANCES 5
-#define TX_PERIOD_US 3000
-#define TO_BACKOFF_US 15000
+#define TX_PERIOD_US 5000
+#define TO_BACKOFF_US 10000
 #define WAIT_CONFIRM 0
+#define ONE_DIRECTION 0
+#define INSERT_SYNC 0
 
-#define HISTORY_LENGTH 300
+#define HISTORY_LENGTH 200
 #define MSDU_HISTORY 100
 
 static struct SecSpec sSecSpec = {0};
@@ -136,11 +138,15 @@ static void processAcked(struct inst_priv *target, size_t id)
 	target->mExpectedStatus[id] |= STATUS_ACKNOWLEDGED;
 }
 
-static void processConfirmed(struct inst_priv *target, size_t id)
+static uint8_t processConfirmed(struct inst_priv *target, size_t id)
 {
 	if((target->mExpectedStatus[id] & STATUS_CONFIRMED)) //This would be bad, double confirm or something
+	{
 		target->mConfirmDup++;
+		return 0;
+	}
 	target->mExpectedStatus[id] |= STATUS_CONFIRMED;
+	return 1;
 }
 
 static void processReceived(struct inst_priv *target, uint32_t payload)
@@ -157,6 +163,7 @@ static void processReceived(struct inst_priv *target, uint32_t payload)
 			return;
 		}
 	}
+	fprintf(stderr, "Unexpected payload: %x, last sent: %x\r\n", payload, target->mExpectedData[target->mExpectedIndex]);
 	target->mUnexpected++;
 }
 
@@ -303,7 +310,8 @@ static int handleDataConfirm(struct MCPS_DATA_confirm_pset *params, struct ca821
 		for(int i = 0; i < MSDU_HISTORY; i++){
 			if(priv->mMsduHandles[i] == params->MsduHandle)
 			{
-				processConfirmed(other, priv->prevExpectedId[i]);
+				if(!processConfirmed(other, priv->prevExpectedId[i]))
+					fprintf(stderr, "%x: Dup handle %02x\r\n", priv->mAddress, params->MsduHandle);
 				if(params->Status == MAC_SUCCESS)
 					processAcked(other, priv->prevExpectedId[i]);
 			}
@@ -369,10 +377,11 @@ static int handleDataConfirm(struct MCPS_DATA_confirm_pset *params, struct ca821
 static int handleGenericDispatchFrame(const uint8_t *buf, size_t len, struct ca821x_dev *pDeviceRef)   //Async
 {
 
+	struct inst_priv *priv = pDeviceRef->context;
 	/*
 	 * This is a debugging function for unhandled incoming MAC data
 	 */
-	fprintf(stderr, "Unexpected command 0x%02x\r\n", buf[0]);
+	fprintf(stderr, "%x: Unexpected command 0x%02x\r\n", priv->mAddress, buf[0]);
 
 	return 0;
 }
@@ -411,9 +420,16 @@ static void *inst_worker(void *arg)
 
 		usleep(TX_PERIOD_US);
 
-		pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
+#if INSERT_SYNC
+		uint8_t len;
+		uint8_t leArr[2];
+		MLME_GET_request_sync(macShortAddress, 0, &len, leArr, pDeviceRef);
+#endif
 
-//		if(i) continue;
+		pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
+#if ONE_DIRECTION
+		if(i) continue;
+#endif
 		pthread_mutex_lock(&out_mutex);
 		priv->mMsduHandles[priv->idIndex] = priv->lastHandle;
 		priv->prevExpectedId[priv->idIndex] = addExpected(&(insts[i]), priv, payload);
@@ -610,7 +626,6 @@ int main(int argc, char *argv[])
 		struct ca821x_dev *pDeviceRef = &(cur->pDeviceRef);
 		cur->mAddress = atoi(argv[i+1]);
 		cur->confirm_done = 1;
-		cur->lastHandle = -1;
 		memset(cur->mExpectedStatus, STATUS_RECEIVED | STATUS_ACKNOWLEDGED | STATUS_CONFIRMED, sizeof(cur->mExpectedStatus));
 
 		pthread_mutex_init(&(cur->confirm_mutex), NULL);
