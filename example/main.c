@@ -316,7 +316,7 @@ static void fillIndirectJunk(struct inst_priv *priv)
 					&dest,
 					M_MSDU_LENGTH,
 					priv->msdu,
-					priv->lastHandle,
+					i,
 					0x05,
 					&sSecSpec,
 					&(priv->pDeviceRef)
