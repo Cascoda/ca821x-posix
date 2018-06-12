@@ -40,15 +40,17 @@
 
 #define COLOR_SET(C,X) C X RESET
 
-#define CHANNEL 22
-#define M_PANID 0x1AAA
-#define M_MSDU_LENGTH 4
-#define MAX_INSTANCES 5
-#define TX_PERIOD_US 5000
-#define TO_BACKOFF_US 10000
-#define WAIT_CONFIRM 0
-#define ONE_DIRECTION 0
-#define INSERT_SYNC 0
+#define CHANNEL        22
+#define M_PANID        0x1AAA
+#define M_MSDU_LENGTH  4
+#define MAX_INSTANCES  5
+#define TX_PERIOD_US   5000
+#define TO_BACKOFF_US  10000
+#define WAIT_CONFIRM   0
+#define ONE_DIRECTION  0
+#define INSERT_SYNC    0
+#define INDIRECT       1
+#define INDIRECTJUNK   5
 
 #define HISTORY_LENGTH 200
 #define MSDU_HISTORY 100
@@ -71,6 +73,8 @@ struct inst_priv
 	uint8_t lastHandle;
 	uint16_t lastAddress;
 
+	uint8_t mJunkInQueue[INDIRECTJUNK];
+
 	uint32_t mExpectedData[HISTORY_LENGTH];
 	uint8_t  mExpectedStatus[HISTORY_LENGTH];
 	struct inst_priv* mExpectedSource[HISTORY_LENGTH];
@@ -84,7 +88,7 @@ struct inst_priv
 
 	unsigned int mTx, mSourced, mRx, mAckRemote, mErr, mRestarts, mBadRx, mBadTx,
 	             mCAF, mNack, mRepeats, mMissed, mUnexpected, mMissedAcked, mAckLost,
-		     mTO, mBackoff, mConfirmLost, mConfirmDup;
+	             mTO, mBackoff, mConfirmLost, mConfirmDup;
 };
 
 int numInsts;
@@ -290,12 +294,44 @@ static int handleDataIndication(struct MCPS_DATA_indication_pset *params, struct
 	return 0;
 }
 
+static void fillIndirectJunk(struct inst_priv *priv)
+{
+	for(int i = 0; i < INDIRECTJUNK; i++)
+	{
+		if(priv->mJunkInQueue[i] == 0)
+		{
+			union MacAddr dest;
+			dest.ShortAddress = 0xDEAD;
+			MCPS_DATA_request(
+					MAC_MODE_SHORT_ADDR,
+					MAC_MODE_SHORT_ADDR,
+					M_PANID,
+					&dest,
+					M_MSDU_LENGTH,
+					priv->msdu,
+					priv->lastHandle,
+					0x05,
+					&sSecSpec,
+					priv->pDeviceRef
+					);
+			priv->mJunkInQueue[i] = 1;
+		}
+	}
+}
+
 static int handleDataConfirm(struct MCPS_DATA_confirm_pset *params, struct ca821x_dev *pDeviceRef)   //Async
 {
 	struct inst_priv *other, *priv = pDeviceRef->context;
 	pthread_mutex_t *confirm_mutex = &(priv->confirm_mutex);
 	pthread_cond_t *confirm_cond = &(priv->confirm_cond);
 	uint16_t dstAddr;
+
+	//Catch expiring junk
+	if(params->MsduHandle < INDIRECTJUNK)
+	{
+		priv->mJunkInQueue[params->MsduHandle] = 0;
+		return 0;
+	}
 
 #if PLAT_CHILI
 	TDME_SETSFR_request_sync(0, 0xdb, 0x0A, pDeviceRef);
@@ -402,6 +438,14 @@ static void *inst_worker(void *arg)
 	while(1)
 	{
 		union MacAddr dest;
+		uint8_t txOpts;
+
+#if INDIRECT
+		txOpts = 0x05;
+#else
+		txOpts = 0x01;
+#endif
+
 
 		payload++;
 
@@ -415,6 +459,7 @@ static void *inst_worker(void *arg)
 		priv->confirm_done = 0;
 #endif
 		priv->lastHandle++;
+		if(priv->lastHandle == 0) priv->lastHandle = INDIRECTJUNK; //Reserve lowest handles for indirect junk
 		pthread_mutex_unlock(confirm_mutex);
 
 		pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
@@ -430,6 +475,14 @@ static void *inst_worker(void *arg)
 		pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
 #if ONE_DIRECTION
 		if(i) continue;
+#elif INDIRECT
+		if(i)
+		{
+			uint8_t interval[2] = {0, 0};
+			dest.ShortAddress = insts[i].mAddress;
+			MLME_POLL_request_sync(dest, &interval, &sSecSpec, pDeviceRef);
+			continue;
+		}
 #endif
 		pthread_mutex_lock(&out_mutex);
 		priv->mMsduHandles[priv->idIndex] = priv->lastHandle;
@@ -462,10 +515,12 @@ static void *inst_worker(void *arg)
 				M_MSDU_LENGTH,
 				priv->msdu,
 				priv->lastHandle,
-				0x01,
+				txOpts,
 				&sSecSpec,
 				pDeviceRef
 				);
+
+		fillIndirectJunk(priv);
 	}
 	return NULL;
 }
