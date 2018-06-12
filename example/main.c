@@ -40,6 +40,7 @@
 
 #define COLOR_SET(C,X) C X RESET
 
+#define CHANNEL 22
 #define M_PANID 0x1AAA
 #define M_MSDU_LENGTH 4
 #define MAX_INSTANCES 5
@@ -452,7 +453,7 @@ static void *inst_worker(void *arg)
 #if PLAT_CHILI
 		TDME_SETSFR_request_sync(0, 0xdb, 0x0E, pDeviceRef);
 #endif
-		PUTLE32(payload, priv->msdu);	
+		PUTLE32(payload, priv->msdu);
 		MCPS_DATA_request(
 				MAC_MODE_SHORT_ADDR,
 				MAC_MODE_SHORT_ADDR,
@@ -575,7 +576,7 @@ void initInst(struct inst_priv *cur)
 		&maxBE,
 		pDeviceRef);
 
-	uint8_t channel = 22;
+	uint8_t channel = CHANNEL;
 	MLME_SET_request_sync(
 		phyCurrentChannel,
 		0,
