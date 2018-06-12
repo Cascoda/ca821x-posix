@@ -51,9 +51,16 @@
 #define INSERT_SYNC    0
 #define INDIRECT       1
 #define INDIRECTJUNK   5
+#define USELONGADDR    1
 
 #define HISTORY_LENGTH 200
 #define MSDU_HISTORY 100
+
+#if USELONGADDR
+#define CURADDRMODE MAC_MODE_LONG_ADDR
+#else
+#define CURADDRMODE MAC_MODE_SHORT_ADDR
+#endif
 
 static struct SecSpec sSecSpec = {0};
 
@@ -300,11 +307,11 @@ static void fillIndirectJunk(struct inst_priv *priv)
 	{
 		if(priv->mJunkInQueue[i] == 0)
 		{
-			union MacAddr dest;
+			union MacAddr dest = {0};
 			dest.ShortAddress = 0xDEAD;
 			MCPS_DATA_request(
-					MAC_MODE_SHORT_ADDR,
-					MAC_MODE_SHORT_ADDR,
+					CURADDRMODE,
+					CURADDRMODE,
 					M_PANID,
 					&dest,
 					M_MSDU_LENGTH,
@@ -437,7 +444,7 @@ static void *inst_worker(void *arg)
 	uint16_t i = 0;
 	while(1)
 	{
-		union MacAddr dest;
+		union MacAddr dest = {0};
 		uint8_t txOpts;
 
 #if INDIRECT
@@ -459,7 +466,7 @@ static void *inst_worker(void *arg)
 		priv->confirm_done = 0;
 #endif
 		priv->lastHandle++;
-		if(priv->lastHandle == 0) priv->lastHandle = INDIRECTJUNK; //Reserve lowest handles for indirect junk
+		if(priv->lastHandle < INDIRECTJUNK) priv->lastHandle = INDIRECTJUNK; //Reserve lowest handles for indirect junk
 		pthread_mutex_unlock(confirm_mutex);
 
 		pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
@@ -475,18 +482,20 @@ static void *inst_worker(void *arg)
 		pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
 #if ONE_DIRECTION
 		if(i) continue;
-#elif INDIRECT
+#endif
+
+#if INDIRECT
 		if(i)
 		{
 			struct FullAddr fa = {0};
 			PUTLE16(M_PANID, fa.PANId);
-			PUTLE16(0xDEAD, fa.Address);
-			fa.AddressMode = MAC_MODE_SHORT_ADDR;
+			PUTLE16(insts[i].mAddress, fa.Address);
+			fa.AddressMode = CURADDRMODE;
 			uint8_t interval[2] = {0, 0};
 			MLME_POLL_request_sync(fa, interval, &sSecSpec, pDeviceRef);
 			continue;
 		}
-#endif
+#endif //INDIRECT
 		pthread_mutex_lock(&out_mutex);
 		priv->mMsduHandles[priv->idIndex] = priv->lastHandle;
 		priv->prevExpectedId[priv->idIndex] = addExpected(&(insts[i]), priv, payload);
@@ -502,7 +511,11 @@ static void *inst_worker(void *arg)
 		}
 
 		//fire
+#if USELONGADDR
+		PUTLE16(insts[i].mAddress, dest.IEEEAddress);
+#else
 		dest.ShortAddress = insts[i].mAddress;
+#endif
 		pthread_mutex_lock(confirm_mutex);
 		priv->lastAddress = insts[i].mAddress;
 		pthread_mutex_unlock(confirm_mutex);
@@ -511,8 +524,8 @@ static void *inst_worker(void *arg)
 #endif
 		PUTLE32(payload, priv->msdu);
 		MCPS_DATA_request(
-				MAC_MODE_SHORT_ADDR,
-				MAC_MODE_SHORT_ADDR,
+				CURADDRMODE,
+				CURADDRMODE,
 				M_PANID,
 				&dest,
 				M_MSDU_LENGTH,
@@ -642,7 +655,7 @@ void initInst(struct inst_priv *cur)
 		&channel,
 		pDeviceRef);
 
-	uint8_t LEarray[2];
+	uint8_t LEarray[8] = {0};
 	LEarray[0] = LS0_BYTE(M_PANID);
 	LEarray[1] = LS1_BYTE(M_PANID);
 	MLME_SET_request_sync(
@@ -654,12 +667,21 @@ void initInst(struct inst_priv *cur)
 
 	LEarray[0] = LS0_BYTE(cur->mAddress);
 	LEarray[1] = LS1_BYTE(cur->mAddress);
+#if USELONGADDR
+	MLME_SET_request_sync(
+		nsIEEEAddress,
+		0,
+		8,
+		LEarray,
+		pDeviceRef);
+#else
 	MLME_SET_request_sync(
 		macShortAddress,
 		0,
 		sizeof(cur->mAddress),
 		LEarray,
 		pDeviceRef);
+#endif
 
 	uint8_t rxOnWhenIdle = 1;
 	MLME_SET_request_sync( //enable Rx when Idle
