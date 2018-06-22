@@ -54,15 +54,35 @@ void (*wake_hw_worker)(void);
 static int init_generic_statics(void);
 static int deinit_generic_statics(void);
 
-static void *ca821x_downstream_dispatch_worker(void *arg)
+int ca821x_run_downstream_dispatch()
 {
 	struct ca821x_dev *pDeviceRef;
 	struct ca821x_exchange_base *priv;
-
 	uint8_t buffer[MAX_BUF_SIZE];
-	uint8_t len;
 	int rval;
+	int len;
 
+	len = pop_from_queue(&downstream_dispatch_queue,
+	                     &downstream_queue_mutex,
+	                     buffer,
+	                     MAX_BUF_SIZE, &pDeviceRef);
+
+	if (len > 0)
+	{
+		priv = pDeviceRef->exchange_context;
+		rval = ca821x_downstream_dispatch(buffer, len, pDeviceRef);
+
+		if (rval < 0 && priv->user_callback)
+		{
+			priv->user_callback(buffer, len, pDeviceRef);
+		}
+	}
+
+	return len;
+}
+
+static void *ca821x_downstream_dispatch_worker(void *arg)
+{
 	pthread_mutex_lock(&s_flag_mutex);
 	while (s_worker_run_flag)
 	{
@@ -71,21 +91,7 @@ static void *ca821x_downstream_dispatch_worker(void *arg)
 		wait_on_queue(&downstream_dispatch_queue, &downstream_queue_mutex,
 		              &dd_cond);
 
-		len = pop_from_queue(&downstream_dispatch_queue,
-		                     &downstream_queue_mutex,
-		                     buffer,
-		                     MAX_BUF_SIZE, &pDeviceRef);
-
-		if (len > 0)
-		{
-			priv = pDeviceRef->exchange_context;
-			rval = ca821x_downstream_dispatch(buffer, len, pDeviceRef);
-
-			if (rval < 0 && priv->user_callback)
-			{
-				priv->user_callback(buffer, len, pDeviceRef);
-			}
-		}
+		ca821x_run_downstream_dispatch();
 
 		pthread_mutex_lock(&s_flag_mutex);
 	}
@@ -154,13 +160,15 @@ int deinit_generic(struct ca821x_dev *pDeviceRef)
 
 static int init_generic_statics()
 {
-	int rval, error = 0;
+	int rval = 0, error = 0;
 
 	if (s_generic_initialised++) goto exit;
 
+#if POSIX_ASYNC_DISPATCH
 	s_worker_run_flag = 1;
 	rval = pthread_create(&dd_thread, PTHREAD_CREATE_JOINABLE,
 	                      &ca821x_downstream_dispatch_worker, NULL);
+#endif
 
 	if (rval != 0)
 	{

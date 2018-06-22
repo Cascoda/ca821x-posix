@@ -36,10 +36,30 @@
 
 #define MAX_BUF_SIZE 256
 
+/*
+ * POSIX_ASYNC_DISPATCH enables the asynchronous, automatic calling of the
+ * callback functions from a secondary thread. If synchronous polling of
+ * indications is required, then ca821x_run_downstream_dispatch should
+ * be regularly called from a polling loop.
+ */
+#ifndef POSIX_ASYNC_DISPATCH
+#define POSIX_ASYNC_DISPATCH 1
+#endif
 
+/* Initialise an allocated pDeviceRef struct */
 int init_generic(struct ca821x_dev *pDeviceRef);
 
+/* Deinitialise an initialised pDeviceRef struct */
 int deinit_generic(struct ca821x_dev *pDeviceRef);
+
+#if !POSIX_ASYNC_DISPATCH
+/* Run the downstream dispatch and process Asynchronous commands that have
+ * come in. The return value will be zero if no command was processed, and
+ * nonzero (command length) if a command was processed. It is recommended that
+ * if the return value is nonzero, the function should be called again.
+ */
+int ca821x_run_downstream_dispatch(void);
+#endif
 
 int exchange_handle_error(int error, struct ca821x_dev *pDeviceRef);
 
