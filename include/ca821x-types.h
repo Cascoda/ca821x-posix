@@ -10,6 +10,7 @@
 
 #include <pthread.h>
 #include <unistd.h>
+#include "ca821x-posix-config.h"
 
 struct ca821x_dev;
 

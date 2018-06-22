@@ -30,6 +30,7 @@
  */
 
 #include "../ca821x-posix.h"
+#include "../include/ca821x-generic-exchange.h"
 
 int ca821x_util_init(struct ca821x_dev *pDeviceRef,
                      ca821x_errorhandler errorHandler)
@@ -83,4 +84,14 @@ int ca821x_util_reset(struct ca821x_dev *pDeviceRef)
 	}
 
 	return error;
+}
+
+int ca821x_util_dispatch_poll(struct ca821x_dev *pDeviceRef)
+{
+	(void) pDeviceRef;
+#if !POSIX_ASYNC_DISPATCH
+	return ca821x_run_downstream_dispatch();
+#else
+	return 0;
+#endif
 }

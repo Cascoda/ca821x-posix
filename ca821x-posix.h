@@ -67,6 +67,26 @@ void ca821x_util_deinit(struct ca821x_dev *pDeviceRef);
 int ca821x_util_reset(struct ca821x_dev *pDeviceRef);
 
 /**
+ * Generic function to poll the receive queue and call callbacks for received
+ * commands. This function should only be used if POSIX_ASYNC_DISPATCH has been
+ * set to 0. If POSIX_ASYNC_DISPATCH is set to 1, the callbacks will be called
+ * immediately and asynchronously from another thread.
+ *
+ * It is recommended that if the return value is nonzero, the function should be
+ * called again.
+ *
+ * Calling on an uninitialised pDeviceRef produces undefined behaviour.
+ *
+ * @param[in]   pDeviceRef   Device reference for device to be reset.
+ *
+ * @returns Length of processed command, or 0 if the queue was empty.
+ *
+ */
+#if !POSIX_ASYNC_DISPATCH
+int ca821x_util_dispatch_poll(struct ca821x_dev *pDeviceRef);
+#endif
+
+/**
  * Registers the callback to call for any non-ca821x commands that are sent over
  * the interface. Commands are still limited to the ca821x format, and must
  * use a command ID that is not currently used by the ca821x-spi protocol.
