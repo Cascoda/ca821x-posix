@@ -37,7 +37,7 @@
 #define M_MSDU_LENGTH 100
 #define MAX_INSTANCES 5
 #define TX_PERIOD_US 0000
-#define CHANNEL 24
+#define CHANNEL 22
 #define SWAP_COUNTDOWN 100
 
 struct M_KeyDescriptor_st

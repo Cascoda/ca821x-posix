@@ -44,14 +44,15 @@
 #define M_PANID        0x1AAA
 #define M_MSDU_LENGTH  4
 #define MAX_INSTANCES  5
-#define TX_PERIOD_US   5000
-#define TO_BACKOFF_US  10000
+#define TX_PERIOD_US   1000
+#define TO_BACKOFF_US  5000
 #define WAIT_CONFIRM   0
 #define ONE_DIRECTION  0
-#define INSERT_SYNC    0
-#define INDIRECT       1
-#define INDIRECTJUNK   5
-#define USELONGADDR    1
+#define INSERT_SYNC    1
+#define INDIRECT       0
+#define INDIRECTJUNK   4
+#define USELONGADDR    0
+#define ACKREQ         1
 
 #define HISTORY_LENGTH 200
 #define MSDU_HISTORY 100
@@ -233,8 +234,6 @@ int handleUserCallback(const uint8_t *buf, size_t len,
 				other->mBadTx++;
 				pthread_mutex_unlock(&out_mutex);
 			}
-
-			return 1;
 		}
 
 		if(strstr((char*)(buf+2), "dispatching on SPI") != NULL)
@@ -283,7 +282,6 @@ static int handleDataIndication(struct MCPS_DATA_indication_pset *params, struct
 	struct inst_priv *other, *priv = pDeviceRef->context;
 	pthread_mutex_lock(&out_mutex);
 	priv->mRx++;
-
 	if (params->MsduLength == M_MSDU_LENGTH)
 		processReceived(priv, GETLE32(params->Msdu));
 	else
@@ -355,12 +353,13 @@ static int handleDataConfirm(struct MCPS_DATA_confirm_pset *params, struct ca821
 			if(priv->mMsduHandles[i] == params->MsduHandle)
 			{
 				if(!processConfirmed(other, priv->prevExpectedId[i]))
-					fprintf(stderr, "%x: Dup handle %02x\r\n", priv->mAddress, params->MsduHandle);
+					;//fprintf(stderr, "%x: Dup handle %02x\r\n", priv->mAddress, params->MsduHandle);
 				if(params->Status == MAC_SUCCESS)
 					processAcked(other, priv->prevExpectedId[i]);
 			}
 		}
-		other->mAckRemote++;
+		if(params->Status == MAC_SUCCESS)
+			other->mAckRemote++;
 		pthread_mutex_unlock(&out_mutex);
 	}
 
@@ -427,6 +426,12 @@ static int handleGenericDispatchFrame(const uint8_t *buf, size_t len, struct ca8
 	 */
 	fprintf(stderr, "%x: Unexpected command 0x%02x\r\n", priv->mAddress, buf[0]);
 
+	for(int i = 1; i < buf[1]+2; i++)
+	{
+		fprintf(stderr, " %02x", buf[i]);
+	}
+	fprintf(stderr, "\r\n");
+
 	return 0;
 }
 
@@ -445,12 +450,14 @@ static void *inst_worker(void *arg)
 	while(1)
 	{
 		union MacAddr dest = {0};
-		uint8_t txOpts;
+		uint8_t txOpts = 0;
+
+#if ACKREQ
+		txOpts |= 0x01;
+#endif
 
 #if INDIRECT
-		txOpts = 0x05;
-#else
-		txOpts = 0x01;
+		txOpts |= 0x04;
 #endif
 
 
@@ -623,7 +630,7 @@ void initInst(struct inst_priv *cur)
 	HWME_SET_request_sync(0x11, 1, &disable, pDeviceRef);
 
 	//Set up MAC pib attributes
-	uint8_t retries = 3;	//Retry transmission 3 times if not acknowledged
+	uint8_t retries = 4;	//Retry transmission 3 times if not acknowledged
 	MLME_SET_request_sync(
 		macMaxFrameRetries,
 		0,
@@ -639,13 +646,22 @@ void initInst(struct inst_priv *cur)
 		&retries,
 		pDeviceRef);
 
-	uint8_t maxBE = 4;	//max BackoffExponent 4
+	uint8_t maxBE = 3;	//max BackoffExponent 4
 	MLME_SET_request_sync(
 		macMaxBE,
 		0,
 		sizeof(maxBE),
 		&maxBE,
 		pDeviceRef);
+
+	uint8_t minBE = 1;
+	MLME_SET_request_sync(
+		macMinBE,
+		0,
+		sizeof(minBE),
+		&minBE,
+		pDeviceRef);
+
 
 	uint8_t channel = CHANNEL;
 	MLME_SET_request_sync(
