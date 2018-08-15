@@ -48,7 +48,7 @@
 #define TO_BACKOFF_US  5000
 #define WAIT_CONFIRM   0
 #define ONE_DIRECTION  0
-#define INSERT_SYNC    1
+#define INSERT_SYNC    (getRand(0,1))
 #define INDIRECT       0
 #define INDIRECTJUNK   4
 #define USELONGADDR    0
@@ -56,12 +56,6 @@
 
 #define HISTORY_LENGTH 200
 #define MSDU_HISTORY 100
-
-#if USELONGADDR
-#define CURADDRMODE MAC_MODE_LONG_ADDR
-#else
-#define CURADDRMODE MAC_MODE_SHORT_ADDR
-#endif
 
 static struct SecSpec sSecSpec = {0};
 
@@ -103,8 +97,20 @@ int numInsts;
 struct inst_priv insts[MAX_INSTANCES] = {};
 
 pthread_mutex_t out_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t rand_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 void initInst(struct inst_priv *cur);
+
+static int getRand(int min, int max)
+{
+	int rval;
+
+	pthread_mutex_lock(&rand_mutex);
+	rval = (rand() % (max-min+1)) + min;
+	pthread_mutex_lock(&rand_mutex);
+
+	return rval;
+}
 
 static struct inst_priv *getInstFromAddr(uint16_t shaddr)
 {
@@ -305,11 +311,17 @@ static void fillIndirectJunk(struct inst_priv *priv)
 	{
 		if(priv->mJunkInQueue[i] == 0)
 		{
+			uint8_t curAddrMode;
+			if(USELONGADDR)
+				curAddrMode = MAC_MODE_LONG_ADDR;
+			else
+				curAddrMode = MAC_MODE_SHORT_ADDR;
+
 			union MacAddr dest = {0};
 			dest.ShortAddress = 0xDEAD;
 			MCPS_DATA_request(
-					CURADDRMODE,
-					CURADDRMODE,
+					curAddrMode,
+					curAddrMode,
 					M_PANID,
 					&dest,
 					M_MSDU_LENGTH,
@@ -451,15 +463,18 @@ static void *inst_worker(void *arg)
 	{
 		union MacAddr dest = {0};
 		uint8_t txOpts = 0;
+		uint8_t curAddrMode;
 
-#if ACKREQ
-		txOpts |= 0x01;
-#endif
+		if(ACKREQ)
+			txOpts |= 0x01;
 
-#if INDIRECT
-		txOpts |= 0x04;
-#endif
+		if(INDIRECT)
+			txOpts |= 0x04;
 
+		if(USELONGADDR)
+			curAddrMode = MAC_MODE_LONG_ADDR;
+		else
+			curAddrMode = MAC_MODE_SHORT_ADDR;
 
 		payload++;
 
@@ -469,9 +484,9 @@ static void *inst_worker(void *arg)
 		//wait for confirm & reset
 		pthread_mutex_lock(confirm_mutex);
 		while(!priv->confirm_done) pthread_cond_wait(confirm_cond, confirm_mutex);
-#if WAIT_CONFIRM
-		priv->confirm_done = 0;
-#endif
+		if(WAIT_CONFIRM)
+			priv->confirm_done = 0;
+
 		priv->lastHandle++;
 		if(priv->lastHandle < INDIRECTJUNK) priv->lastHandle = INDIRECTJUNK; //Reserve lowest handles for indirect junk
 		pthread_mutex_unlock(confirm_mutex);
@@ -480,29 +495,30 @@ static void *inst_worker(void *arg)
 
 		usleep(TX_PERIOD_US);
 
-#if INSERT_SYNC
-		uint8_t len;
-		uint8_t leArr[2];
-		MLME_GET_request_sync(macShortAddress, 0, &len, leArr, pDeviceRef);
-#endif
+		if(INSERT_SYNC)
+		{
+			uint8_t len;
+			uint8_t leArr[2];
+			MLME_GET_request_sync(macShortAddress, 0, &len, leArr, pDeviceRef);
+		}
 
 		pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
-#if ONE_DIRECTION
-		if(i) continue;
-#endif
+		if (ONE_DIRECTION)
+		{
+			if(i) continue;
+		}
 
-#if INDIRECT
-		if(i)
+		if( INDIRECT && i)
 		{
 			struct FullAddr fa = {0};
 			PUTLE16(M_PANID, fa.PANId);
 			PUTLE16(insts[i].mAddress, fa.Address);
-			fa.AddressMode = CURADDRMODE;
+			fa.AddressMode = curAddrMode;
 			uint8_t interval[2] = {0, 0};
 			MLME_POLL_request_sync(fa, interval, &sSecSpec, pDeviceRef);
 			continue;
 		}
-#endif //INDIRECT
+
 		pthread_mutex_lock(&out_mutex);
 		priv->mMsduHandles[priv->idIndex] = priv->lastHandle;
 		priv->prevExpectedId[priv->idIndex] = addExpected(&(insts[i]), priv, payload);
@@ -518,11 +534,8 @@ static void *inst_worker(void *arg)
 		}
 
 		//fire
-#if USELONGADDR
-		PUTLE16(insts[i].mAddress, dest.IEEEAddress);
-#else
 		dest.ShortAddress = insts[i].mAddress;
-#endif
+
 		pthread_mutex_lock(confirm_mutex);
 		priv->lastAddress = insts[i].mAddress;
 		pthread_mutex_unlock(confirm_mutex);
@@ -531,8 +544,8 @@ static void *inst_worker(void *arg)
 #endif
 		PUTLE32(payload, priv->msdu);
 		MCPS_DATA_request(
-				CURADDRMODE,
-				CURADDRMODE,
+				curAddrMode,
+				curAddrMode,
 				M_PANID,
 				&dest,
 				M_MSDU_LENGTH,
@@ -683,21 +696,20 @@ void initInst(struct inst_priv *cur)
 
 	LEarray[0] = LS0_BYTE(cur->mAddress);
 	LEarray[1] = LS1_BYTE(cur->mAddress);
-#if USELONGADDR
+
 	MLME_SET_request_sync(
 		nsIEEEAddress,
 		0,
 		8,
 		LEarray,
 		pDeviceRef);
-#else
+
 	MLME_SET_request_sync(
 		macShortAddress,
 		0,
 		sizeof(cur->mAddress),
 		LEarray,
 		pDeviceRef);
-#endif
 
 	uint8_t rxOnWhenIdle = 1;
 	MLME_SET_request_sync( //enable Rx when Idle
@@ -712,6 +724,9 @@ int main(int argc, char *argv[])
 {
 	if(argc <= 2) return -1;
 	numInsts = argc - 1;
+
+	time_t t;
+	srand((unsigned) time(&t));
 
 	if(argc - 1 > MAX_INSTANCES)
 	{
