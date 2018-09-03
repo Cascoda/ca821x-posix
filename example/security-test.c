@@ -59,7 +59,7 @@ uint8_t addr2[] = {0xFA, 0xCE, 0x0F, 0xFF, 0xFA, 0xCE, 0x17, 0x00};
 uint16_t saddr1 = 0xBEEF;
 uint16_t saddr2 = 0xFACE;
 
-uint8_t new_mode = 0;
+uint8_t new_mode = 1;
 
 struct inst_priv
 {

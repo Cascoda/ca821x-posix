@@ -40,22 +40,27 @@
 
 #define COLOR_SET(C,X) C X RESET
 
+
 #define CHANNEL        22
 #define M_PANID        0x1AAA
-#define M_MSDU_LENGTH  4
+#define MAX_MSDU_LEN   4 
+#define MIN_MSDU_LEN   20
 #define MAX_INSTANCES  5
-#define TX_PERIOD_US   1000
-#define TO_BACKOFF_US  5000
+#define TX_PERIOD_US   (getRand(2000, 3000))
+#define TO_BACKOFF_US  10000
 #define WAIT_CONFIRM   0
 #define ONE_DIRECTION  0
-#define INSERT_SYNC    (getRand(0,1))
-#define INDIRECT       0
-#define INDIRECTJUNK   4
-#define USELONGADDR    0
-#define ACKREQ         1
+#define INSERT_SYNC    (getRand(0,0))
+#define INDIRECT       1
+#define INDIRECTJUNK   5
+#define USELONGADDR    (getRand(0,0))
+#define ACKREQ         (getRand(1,1))
+#define NUMRETRIES     4
 
 #define HISTORY_LENGTH 200
 #define MSDU_HISTORY 100
+
+#define M_MSDU_LENGTH  (getRand(MIN_MSDU_LEN, MAX_MSDU_LEN))
 
 static struct SecSpec sSecSpec = {0};
 
@@ -86,7 +91,7 @@ struct inst_priv
 	uint8_t mMsduHandles[MSDU_HISTORY];
 	size_t prevExpectedId[MSDU_HISTORY];
 
-	uint8_t msdu[M_MSDU_LENGTH];
+	uint8_t msdu[MAX_MSDU_LEN];
 
 	unsigned int mTx, mSourced, mRx, mAckRemote, mErr, mRestarts, mBadRx, mBadTx,
 	             mCAF, mNack, mRepeats, mMissed, mUnexpected, mMissedAcked, mAckLost,
@@ -107,7 +112,7 @@ static int getRand(int min, int max)
 
 	pthread_mutex_lock(&rand_mutex);
 	rval = (rand() % (max-min+1)) + min;
-	pthread_mutex_lock(&rand_mutex);
+	pthread_mutex_unlock(&rand_mutex);
 
 	return rval;
 }
@@ -288,10 +293,10 @@ static int handleDataIndication(struct MCPS_DATA_indication_pset *params, struct
 	struct inst_priv *other, *priv = pDeviceRef->context;
 	pthread_mutex_lock(&out_mutex);
 	priv->mRx++;
-	if (params->MsduLength == M_MSDU_LENGTH)
-		processReceived(priv, GETLE32(params->Msdu));
-	else
-		priv->mUnexpected++;
+	processReceived(priv, GETLE32(params->Msdu));
+
+	if(params->Msdu[params->MsduLength] != 0)
+		fprintf(stderr, "Unexpected security level!");
 
 	pthread_mutex_unlock(&out_mutex);
 
@@ -651,7 +656,7 @@ void initInst(struct inst_priv *cur)
 		&retries,
 		pDeviceRef);
 
-	retries = 4;	//max 4 CSMA backoffs
+	retries = NUMRETRIES;	//max 4 CSMA backoffs
 	MLME_SET_request_sync(
 		macMaxCSMABackoffs,
 		0,
@@ -712,6 +717,7 @@ void initInst(struct inst_priv *cur)
 		pDeviceRef);
 
 	uint8_t rxOnWhenIdle = 1;
+	if(INDIRECT && (cur == insts)) rxOnWhenIdle = 0;
 	MLME_SET_request_sync( //enable Rx when Idle
 		macRxOnWhenIdle,
 		0,
