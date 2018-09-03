@@ -43,7 +43,7 @@
 
 #define CHANNEL        22
 #define M_PANID        0x1AAA
-#define MAX_MSDU_LEN   4 
+#define MAX_MSDU_LEN   4
 #define MIN_MSDU_LEN   20
 #define MAX_INSTANCES  5
 #define TX_PERIOD_US   (getRand(2000, 3000))
@@ -166,7 +166,6 @@ static uint8_t processConfirmed(struct inst_priv *target, size_t id)
 {
 	if((target->mExpectedStatus[id] & STATUS_CONFIRMED)) //This would be bad, double confirm or something
 	{
-		target->mConfirmDup++;
 		return 0;
 	}
 	target->mExpectedStatus[id] |= STATUS_CONFIRMED;
@@ -370,7 +369,7 @@ static int handleDataConfirm(struct MCPS_DATA_confirm_pset *params, struct ca821
 			if(priv->mMsduHandles[i] == params->MsduHandle)
 			{
 				if(!processConfirmed(other, priv->prevExpectedId[i]))
-					;//fprintf(stderr, "%x: Dup handle %02x\r\n", priv->mAddress, params->MsduHandle);
+					priv->mConfirmDup++;
 				if(params->Status == MAC_SUCCESS)
 					processAcked(other, priv->prevExpectedId[i]);
 			}
@@ -461,7 +460,7 @@ static void *inst_worker(void *arg)
 	pthread_mutex_t *confirm_mutex = &(priv->confirm_mutex);
 	pthread_cond_t *confirm_cond = &(priv->confirm_cond);
 
-	payload = (uint32_t) &payload;
+	payload = getRand(0, 0x7FFFFFFF);
 
 	uint16_t i = 0;
 	while(1)
