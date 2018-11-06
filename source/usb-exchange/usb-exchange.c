@@ -38,11 +38,11 @@
 #include <unistd.h>
 #include <dlfcn.h>
 
-#include "hidapi/hidapi/hidapi.h"
-#include "usb_exchange.h"
+#include "hidapi/hidapi.h"
 #include "ca821x_api.h"
 #include "ca821x-queue.h"
 #include "ca821x-generic-exchange.h"
+#include "usb-exchange.h"
 
 #define USB_VID 0x0416
 #define USB_PID 0x5020

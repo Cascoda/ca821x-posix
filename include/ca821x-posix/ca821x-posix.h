@@ -1,10 +1,8 @@
 #ifndef CA821X_POSIX_H
 #define CA821X_POSIX_H 1
 
-#include "ca821x-api/include/ca821x_api.h"
-#include "usb-exchange/usb_exchange.h"
-#include "kernel-exchange/kernel_exchange.h"
-#include "ca821x-types.h"
+#include "ca821x_api.h"
+#include "ca821x-posix/ca821x-types.h"
 
 /**
  * Generic function to initialise an available ca821x device. This includes
@@ -82,7 +80,7 @@ int ca821x_util_reset(struct ca821x_dev *pDeviceRef);
  * @returns Length of processed command, or 0 if the queue was empty.
  *
  */
-#if !POSIX_ASYNC_DISPATCH
+#if !CA821X_ASYNC_CALLBACK
 int ca821x_util_dispatch_poll(struct ca821x_dev *pDeviceRef);
 #endif
 

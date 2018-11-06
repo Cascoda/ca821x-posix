@@ -44,9 +44,9 @@
 #include <sys/select.h>
 #include <sys/ioctl.h>
 
-#include "kernel_exchange.h"
 #include "ca821x-queue.h"
 #include "ca821x-generic-exchange.h"
+#include "kernel-exchange.h"
 
 /******************************************************************************/
 
