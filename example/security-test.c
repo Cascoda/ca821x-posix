@@ -40,6 +40,12 @@
 #define CHANNEL 22
 #define SWAP_COUNTDOWN 100
 
+#define NEW_MODE 0
+
+#if (CASCODA_CA_VER == 8210) && NEW_MODE
+#error "CA8210 does not support new security mode."
+#endif
+
 struct M_KeyDescriptor_st
 {
 	struct M_KeyTableEntryFixed    Fixed;
@@ -58,8 +64,6 @@ uint8_t addr2[] = {0xFA, 0xCE, 0x0F, 0xFF, 0xFA, 0xCE, 0x17, 0x00};
 
 uint16_t saddr1 = 0xBEEF;
 uint16_t saddr2 = 0xFACE;
-
-uint8_t new_mode = 1;
 
 struct inst_priv
 {
@@ -457,7 +461,7 @@ void initInst(struct inst_priv *cur)
 	LEarray[0] = 2;
 	MLME_SET_request_sync(macDeviceTableEntries, 0, 1, LEarray, pDeviceRef);
 
-	uint8_t dCount = new_mode ? 1 : 2;
+	uint8_t dCount = NEW_MODE ? 1 : 2;
 
 	for(int i = 0; i < dCount; i++){
 		MLME_SET_request_sync(macDeviceTable, i, sizeof(dd), &dd, pDeviceRef);
@@ -484,9 +488,11 @@ void initInst(struct inst_priv *cur)
 		else memcpy(kd.Fixed.Key, key2, 16);
 
 		kd.KeyIdLookupList[0].LookupData[0] = i;
-		kd.KeyDeviceList[0].Flags = new_mode ? 0 : i;
+		kd.KeyDeviceList[0].Flags = NEW_MODE ? 0 : i;
 
-		if(new_mode && i == 1) kd.KeyDeviceList[0].Flags |= KDD_NewMask;
+#if NEW_MODE
+		if(i == 1) kd.KeyDeviceList[0].Flags |= KDD_NewMask;
+#endif
 
 		MLME_SET_request_sync(macKeyTable, i, sizeof(kd), &kd, pDeviceRef);
 	}
