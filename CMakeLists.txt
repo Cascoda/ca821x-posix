@@ -85,4 +85,5 @@ target_link_libraries(example_app ca821x-api ca821x-posix)
 target_link_libraries(security_test ca821x-api ca821x-posix)
 
 # Run tests -------------------------------------------------------------------
+include(CTest)
 # TODO: Add tests
