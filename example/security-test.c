@@ -8,7 +8,7 @@
 #include <signal.h>
 #include <string.h>
 
-#include "../ca821x-posix.h"
+#include "ca821x-posix/ca821x-posix.h"
 
 /* Colour codes for printf */
 #ifndef NO_COLOR

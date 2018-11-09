@@ -10,7 +10,7 @@
 #include <string.h>
 #include <time.h>
 
-#include "../ca821x-posix.h"
+#include "ca821x-posix/ca821x-posix.h"
 
 //Set to 1 to build for the chilis (i.e. with MACFFT set on this level)
 #ifndef PLAT_CHILI
