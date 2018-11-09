@@ -12,11 +12,6 @@
 
 #include "ca821x-posix/ca821x-posix.h"
 
-//Set to 1 to build for the chilis (i.e. with MACFFT set on this level)
-#ifndef PLAT_CHILI
-#define PLAT_CHILI 0
-#endif
-
 /* Colour codes for printf */
 #ifndef NO_COLOR
 #define RED        "\x1b[31m"
@@ -25,7 +20,7 @@
 #define BLUE       "\x1b[34m"
 #define MAGENTA    "\x1b[35m"
 #define CYAN       "\x1b[36m"
-#define BOLDWHITE  "\033[1m\033[37m"
+#define BOLDWHITE  "\x1b[1m\x1b[37m"
 #define RESET      "\x1b[0m"
 #else
 #define RED        ""
@@ -39,7 +34,6 @@
 #endif
 
 #define COLOR_SET(C,X) C X RESET
-
 
 #define CHANNEL        22
 #define M_PANID        0x1AAA
@@ -321,13 +315,14 @@ static void fillIndirectJunk(struct inst_priv *priv)
 			else
 				curAddrMode = MAC_MODE_SHORT_ADDR;
 
-			union MacAddr dest = {0};
-			dest.ShortAddress = 0xDEAD;
+			struct FullAddr dest;
+			PUTLE16(M_PANID, dest.PANId);
+			PUTLE16(0xDEAD, dest.Address);
+			dest.AddressMode = curAddrMode;
+
 			MCPS_DATA_request(
 					curAddrMode,
-					curAddrMode,
-					M_PANID,
-					&dest,
+					dest,
 					M_MSDU_LENGTH,
 					priv->msdu,
 					i,
@@ -353,10 +348,6 @@ static int handleDataConfirm(struct MCPS_DATA_confirm_pset *params, struct ca821
 		priv->mJunkInQueue[params->MsduHandle] = 0;
 		return 0;
 	}
-
-#if PLAT_CHILI
-	TDME_SETSFR_request_sync(0, 0xdb, 0x0A, pDeviceRef);
-#endif
 
 	pthread_mutex_lock(confirm_mutex);
 	dstAddr = priv->lastAddress;
@@ -465,7 +456,7 @@ static void *inst_worker(void *arg)
 	uint16_t i = 0;
 	while(1)
 	{
-		union MacAddr dest = {0};
+		struct FullAddr dest = {0};
 		uint8_t txOpts = 0;
 		uint8_t curAddrMode;
 
@@ -518,8 +509,12 @@ static void *inst_worker(void *arg)
 			PUTLE16(M_PANID, fa.PANId);
 			PUTLE16(insts[i].mAddress, fa.Address);
 			fa.AddressMode = curAddrMode;
+#if CASCODA_CA_VER == 8210
 			uint8_t interval[2] = {0, 0};
 			MLME_POLL_request_sync(fa, interval, &sSecSpec, pDeviceRef);
+#else
+			MLME_POLL_request_sync(fa, &sSecSpec, pDeviceRef);
+#endif
 			continue;
 		}
 
@@ -538,20 +533,17 @@ static void *inst_worker(void *arg)
 		}
 
 		//fire
-		dest.ShortAddress = insts[i].mAddress;
+		PUTLE16(M_PANID, dest.PANId);
+		PUTLE16(insts[i].mAddress, dest.Address);
+		dest.AddressMode = curAddrMode;
 
 		pthread_mutex_lock(confirm_mutex);
 		priv->lastAddress = insts[i].mAddress;
 		pthread_mutex_unlock(confirm_mutex);
-#if PLAT_CHILI
-		TDME_SETSFR_request_sync(0, 0xdb, 0x0E, pDeviceRef);
-#endif
 		PUTLE32(payload, priv->msdu);
 		MCPS_DATA_request(
 				curAddrMode,
-				curAddrMode,
-				M_PANID,
-				&dest,
+				dest,
 				M_MSDU_LENGTH,
 				priv->msdu,
 				priv->lastHandle,

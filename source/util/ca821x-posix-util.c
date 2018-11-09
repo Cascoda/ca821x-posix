@@ -31,6 +31,8 @@
 
 #include "ca821x-posix/ca821x-posix.h"
 #include "ca821x-generic-exchange.h"
+#include "usb-exchange.h"
+#include "kernel-exchange.h"
 
 int ca821x_util_init(struct ca821x_dev *pDeviceRef,
                      ca821x_errorhandler errorHandler)

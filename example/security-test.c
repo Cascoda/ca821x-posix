@@ -273,7 +273,7 @@ static void *inst_worker(void *arg)
 	uint16_t i = 0;
 	while(1)
 	{
-		union MacAddr dest;
+		struct FullAddr dest;
 
 		do{
 			i = (i+1) % numInsts;
@@ -292,7 +292,9 @@ static void *inst_worker(void *arg)
 		pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
 
 		//fire
-		dest.ShortAddress = insts[i].mAddress;
+		dest.AddressMode = MAC_MODE_SHORT_ADDR;
+		PUTLE16(insts[i].mAddress, dest.Address);
+		PUTLE16(M_PANID, dest.PANId);
 		pthread_mutex_lock(confirm_mutex);
 		priv->lastAddress = insts[i].mAddress;
 		pthread_mutex_unlock(confirm_mutex);
@@ -300,9 +302,7 @@ static void *inst_worker(void *arg)
 		//if(i == 1)
 		MCPS_DATA_request(
 				MAC_MODE_SHORT_ADDR,
-				MAC_MODE_SHORT_ADDR,
-				M_PANID,
-				&dest,
+				dest,
 				M_MSDU_LENGTH,
 				msdu,
 				priv->lastHandle,
