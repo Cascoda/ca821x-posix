@@ -16,7 +16,7 @@ option( CA821X_ASYNC_CALLBACK
 # Config file generation ------------------------------------------------------
 configure_file(
 	"${PROJECT_SOURCE_DIR}/include/ca821x-posix/ca821x-posix-config.h.in"
-	"${PROJECT_SOURCE_DIR}/include/ca821x-posix/ca821x-posix-config.h"
+	"${PROJECT_BINARY_DIR}/include/ca821x-posix/ca821x-posix-config.h"
 	)
 
 # Sub-project configuration ---------------------------------------------------
@@ -70,6 +70,7 @@ target_include_directories( ca821x-posix
 		${hidapi_SOURCE_DIR}
 	PUBLIC
 		${PROJECT_SOURCE_DIR}/include
+		${PROJECT_BINARY_DIR}/include
 	)
 
 # Test app config -------------------------------------------------------------
