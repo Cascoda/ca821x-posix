@@ -164,7 +164,7 @@ static int init_generic_statics()
 
 	if (s_generic_initialised++) goto exit;
 
-#if POSIX_ASYNC_DISPATCH
+#if CA821X_ASYNC_CALLBACK
 	s_worker_run_flag = 1;
 	rval = pthread_create(&dd_thread, PTHREAD_CREATE_JOINABLE,
 	                      &ca821x_downstream_dispatch_worker, NULL);

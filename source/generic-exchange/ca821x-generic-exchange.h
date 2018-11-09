@@ -32,7 +32,7 @@
 #ifndef CA821X_GENERIC_EXCHANGE_H
 #define CA821X_GENERIC_EXCHANGE_H
 
-#include "ca821x-types.h"
+#include "ca821x-posix/ca821x-types.h"
 
 #define MAX_BUF_SIZE 256
 
@@ -42,7 +42,7 @@ int init_generic(struct ca821x_dev *pDeviceRef);
 /* Deinitialise an initialised pDeviceRef struct */
 int deinit_generic(struct ca821x_dev *pDeviceRef);
 
-#if !POSIX_ASYNC_DISPATCH
+#if !CA821X_ASYNC_CALLBACK
 /* Run the downstream dispatch and process Asynchronous commands that have
  * come in. The return value will be zero if no command was processed, and
  * nonzero (command length) if a command was processed.

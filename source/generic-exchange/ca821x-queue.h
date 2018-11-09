@@ -36,7 +36,7 @@
 #include <stdint.h>
 #include <pthread.h>
 
-#include "ca821x-types.h"
+#include "ca821x-posix/ca821x-types.h"
 
 //Add a buffer onto the end of a non-waiting queue
 void add_to_queue(
