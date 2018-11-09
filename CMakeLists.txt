@@ -3,6 +3,10 @@
 cmake_minimum_required (VERSION 3.11)
 project (ca821x-posix)
 
+# Get required packages
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+
 # Set configuration variables -------------------------------------------------
 option( CA821X_ASYNC_CALLBACK
 	"Enable asynchronous calling of user callbacks from another thread (vs polling using ca821x_util_dispatch_poll)"
@@ -55,8 +59,8 @@ add_library(ca821x-posix
 	${PROJECT_SOURCE_DIR}/source/usb-exchange/usb-exchange.c
 	${PROJECT_SOURCE_DIR}/source/util/ca821x-posix-util.c
 	)
-	
-target_link_libraries(ca821x-posix ca821x-api)
+
+target_link_libraries(ca821x-posix ca821x-api Threads::Threads ${CMAKE_DL_LIBS})
 
 target_include_directories( ca821x-posix
 	PRIVATE
