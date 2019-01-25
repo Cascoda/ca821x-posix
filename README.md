@@ -1,17 +1,14 @@
 # ca8210-posix
 Glue code for linking Cascoda's API code to the ca8210 Linux driver or a ca821x usb dongle
 
-In order to build a useable library for the ca8210 after cloning the repository, run the commands:
+## Building
+This project must be configured with cmake before building. It is recommended to use the cmake gui, ccmake or cmake interactive mode, as there are user-configurable options. This will generate the required config files and setup whatever build system/projects you need.
 
-```
-git submodule update --init --recursive
-make
-```
-Then include ca821x.h in your C source, and link with the libca821x.a library.
+For more information, consult https://cmake.org/runningcmake/
 
-An example is included. Make sure that at least one of the Hid library or ca821x kernel driver is installed as detailed below. Simply run 'make' in 'example/' after building the library in order to build the example.
+An example is included. Make sure that at least one of the Hid library or ca821x kernel driver is installed as detailed below. The example programs will be built alongside the library.
 
-The example takes a series of device IDs as arguments. These should be unique.
+The example takes a series of device IDs as arguments. These should be unique, and are used as the short addresses.
 ```bash
 cd example
 make
